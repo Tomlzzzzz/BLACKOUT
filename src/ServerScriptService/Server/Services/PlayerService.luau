@@ -522,6 +522,11 @@ local function onDeath(player: Player)
 		})
 	end
 
+	-- Un mort ne court plus et n'est plus accroupi. Sans ca les intentions
+	-- traversent la mort et reprennent au redeploiement.
+	sprintIntent[player] = nil
+	crouchIntent[player] = nil
+
 	-- Emis EN DERNIER : les abonnes lisent des chiffres definitifs.
 	-- Notamment le rapport de fin, qui a besoin du detail des piles perdues
 	-- et de la duree deja calculee plus haut.
@@ -571,7 +576,25 @@ local function onPlayerAdded(player: Player)
 		end
 		regenConnections[player] = character.ChildAdded:Connect(stripRegen)
 
-		-- Nouvelle apparition, vitaux neufs. L'armure repart a zero — elle se
+		-- POSTURE NEUTRE A CHAQUE CORPS.
+	--
+	-- LE bug d'endurance. Les intentions de course et d'accroupi n'etaient
+	-- effacees qu'au DEPART du joueur : elles survivaient donc a la mort et au
+	-- redeploiement. Un joueur mort en tenant Maj revenait en sprintant sans
+	-- avoir rien touche, vidait sa jauge dans la seconde, tombait a bout de
+	-- souffle, se remettait a courir des qu'il repassait le quart — la jauge
+	-- oscillait sans jamais repondre a la touche. « Il reste actionne », et
+	-- c'etait litteralement le cas.
+	--
+	-- Le client renvoie la meme remise a zero de son cote : les deux
+	-- pourraient sinon rester en desaccord jusqu'a ce que le joueur pense a
+	-- appuyer puis relacher.
+	sprintIntent[player] = nil
+	crouchIntent[player] = nil
+	player:SetAttribute("Sprinting", false)
+	player:SetAttribute("Crouched", false)
+
+	-- Nouvelle apparition, vitaux neufs. L'armure repart a zero — elle se
 		-- trouve, elle ne se conserve pas a travers la mort — et la lampe est
 		-- rechargee : entrer en zone sans lumiere serait injouable.
 		local vital = vitals[player]
@@ -738,6 +761,16 @@ local function installDebug()
 
 		local value = tonumber(argument or "")
 
+		-- Filet de secours si une intention reste bloquee : on relache tout
+		-- sans avoir a mourir ni a se reconnecter.
+		if action == "release" then
+			sprintIntent[player] = nil
+			crouchIntent[player] = nil
+			player:SetAttribute("Sprinting", false)
+			player:SetAttribute("Crouched", false)
+			return "course et accroupi relaches"
+		end
+
 		if action == "battery" and value then
 			vital.battery = math.clamp(value, 0, vital.maxBattery)
 			if vital.battery <= 0 then
@@ -762,11 +795,24 @@ local function installDebug()
 			`armure : {math.floor(vital.armor)}/{vital.maxArmor}`,
 			`batterie : {math.floor(vital.battery)}/{vital.maxBattery}`,
 			`lampe : {tostring(vital.lightOn)}`,
-			"actions : status | battery <n> | armor <n> | light",
+			"",
+			"-- endurance --",
+			`jauge : {if staminas[player] then string.format("%.1f/%d", staminas[player].value, Config.Player.stamina.max) else "?"}`,
+			`a bout de souffle : {tostring(staminas[player] and staminas[player].exhausted)}`,
+			`intention de course : {tostring(sprintIntent[player] == true)}`,
+			`course accordee : {tostring(player:GetAttribute("Sprinting") == true)}`,
+			`intention d'accroupi : {tostring(crouchIntent[player] == true)}`,
+			`vitesse appliquee : {(function()
+				local character = player.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				return if humanoid then humanoid.WalkSpeed else -1
+			end)()}`,
+			"",
+			"actions : status | battery <n> | armor <n> | light | release",
 		}, "\n")
 	end
 
-	log:info('debug : ServerStorage.DebugVitals:Invoke("status"|"battery <n>"|"armor <n>"|"light")')
+	log:info('debug : ServerStorage.DebugVitals:Invoke("status"|"battery <n>"|"armor <n>"|"light"|"release")')
 end
 
 function PlayerService.Start()

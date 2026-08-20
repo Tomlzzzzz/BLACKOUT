@@ -21,6 +21,7 @@ export type Widget = {
 	stroke: UIStroke,
 	keyBox: Frame,
 	keyShadow: Frame,
+	glow: Frame,
 	keyLabel: TextLabel,
 	action: TextLabel,
 	hint: TextLabel,
@@ -102,6 +103,26 @@ function InteractionWidget.create(parent: Instance): Widget
 	}, prompt) :: Frame
 	Components.new("UICorner", { CornerRadius = UDim.new(0, 4) }, keyBox)
 	Components.new("UIStroke", { Color = Theme.color.borderBright, Thickness = 1, Transparency = 0.2 }, keyBox)
+
+	-- LUEUR DE CHARGE, derriere la touche.
+	--
+	-- Un anneau dit « ou j'en suis » ; il ne dit pas « quelque chose est en
+	-- train de se passer ». La lueur grossit et s'intensifie avec le maintien,
+	-- et c'est elle qu'on percoit du coin de l'oeil sans lire la progression.
+	--
+	-- Elle est dessinee SOUS l'ombre de la touche pour ne jamais manger le
+	-- contraste de la lettre.
+	local glow = Components.new("Frame", {
+		Name = "Charge",
+		BackgroundColor3 = Theme.color.amber,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0, 22, 0.5, 0),
+		Size = UDim2.fromOffset(30, 30),
+		ZIndex = 5,
+	}, prompt) :: Frame
+	Components.new("UICorner", { CornerRadius = UDim.new(1, 0) }, glow)
 
 	-- Reflet en haut de la touche : une bande claire en degrade. Sans elle le
 	-- cadre reste plat quelle que soit son epaisseur.
@@ -205,6 +226,7 @@ function InteractionWidget.create(parent: Instance): Widget
 		stroke = stroke,
 		keyBox = keyBox,
 		keyShadow = keyShadow,
+		glow = glow,
 		keyLabel = keyLabel,
 		action = action,
 		hint = hint,
@@ -314,15 +336,59 @@ function InteractionWidget.step(widget: Widget, dt: number)
 		widget.flash = math.max(0, widget.flash - dt * 2.2)
 	end
 
-	-- Peinture de l'anneau. Le dernier segment se revele PROGRESSIVEMENT :
-	-- sans ca l'anneau avance par crans visibles au lieu de se fermer.
+	-- --- anneau -----------------------------------------------------------
+	--
+	-- Trois lectures superposees, et c'est leur combinaison qui rend
+	-- l'attente supportable :
+	--
+	--   le REMPLI      dit ou l'on en est ;
+	--   la TETE        — les trois derniers segments, plus clairs et plus
+	--                    epais — dit que ca AVANCE encore ;
+	--   la LUEUR       dit qu'il se passe quelque chose, sans avoir a lire.
+	--
+	-- A la reussite, l'anneau s'ECARTE : il quitte la touche vers l'exterieur
+	-- en s'effacant, ce qui evacue l'invite au lieu de la faire disparaitre.
 	if widget.progressTrack.Visible then
 		local filled = widget.shown * #widget.segments
-		local color = if widget.flash > 0 then Theme.color.extraction else Theme.color.amber
+		local done = widget.flash > 0
+		local color = if done then Theme.color.extraction else Theme.color.amber
+
+		-- L'onde de validation : l'anneau grandit de six pixels en s'effacant.
+		local burst = if done then (1 - widget.flash) * 6 else 0
+		local radius = HOLD_RADIUS + burst
+
 		for index, segment in widget.segments do
-			segment.BackgroundTransparency = 1 - math.clamp(filled - (index - 1), 0, 1)
-			segment.BackgroundColor3 = color
+			local amount = math.clamp(filled - (index - 1), 0, 1)
+
+			-- Proximite de la tete, sur les trois derniers segments remplis.
+			local fromHead = filled - index
+			local head = if fromHead >= 0 and fromHead < 3 then 1 - fromHead / 3 else 0
+
+			segment.BackgroundTransparency = 1 - amount * (if done then widget.flash else 1)
+			segment.BackgroundColor3 = if head > 0
+				then color:Lerp(Theme.color.info, head * 0.7)
+				else color
+			segment.Size = UDim2.fromOffset(4 + math.floor(head * 2), 3 + math.floor(head * 2))
+
+			local angle = (index - 1) / #widget.segments * math.pi * 2
+			segment.Position = UDim2.new(
+				0.5,
+				math.sin(angle) * radius,
+				0.5,
+				-math.cos(angle) * radius
+			)
 		end
+
+		-- La lueur suit la charge, puis eclate a la validation.
+		local charge = if done then widget.flash else widget.shown
+		widget.glow.BackgroundColor3 = color
+		widget.glow.BackgroundTransparency = 1 - charge * 0.32
+		widget.glow.Size = UDim2.fromOffset(
+			30 + math.floor(charge * 14),
+			30 + math.floor(charge * 14)
+		)
+	else
+		widget.glow.BackgroundTransparency = 1
 	end
 
 	widget.clock += dt

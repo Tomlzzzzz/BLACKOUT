@@ -979,14 +979,53 @@ function HUDController.bindInput(hud: Hud)
 	-- endurance, epuisement, vie. Le client ne touche jamais a WalkSpeed.
 	local sprintRemote = remotes:WaitForChild("RequestSprint", 10)
 	if sprintRemote and sprintRemote:IsA("RemoteEvent") then
+		-- L'etat est suivi ICI, et on ne parle au serveur QUE sur changement.
+		--
+		-- Trois chemins peuvent laisser une course engagee sans que la touche
+		-- le soit encore, et les trois se sont produits :
+		--   la fenetre perd le focus pendant qu'on tient Maj (alt-tab) ;
+		--   le personnage meurt ou reapparait pendant la course ;
+		--   un autre systeme avale le relachement.
+		--
+		-- Une course qui reste engagee vide la jauge en boucle sans repondre a
+		-- la touche : c'est le bug d'endurance, vu du cote client.
+		local sprinting = false
+
+		local function setSprint(value: boolean)
+			if sprinting == value then
+				return
+			end
+			sprinting = value
+			;(sprintRemote :: RemoteEvent):FireServer(value)
+		end
+
 		ContextActionService:BindAction("BlackoutSprint", function(_, state)
 			if state == Enum.UserInputState.Begin then
-				(sprintRemote :: RemoteEvent):FireServer(true)
+				setSprint(true)
 			elseif state == Enum.UserInputState.End or state == Enum.UserInputState.Cancel then
-				(sprintRemote :: RemoteEvent):FireServer(false)
+				setSprint(false)
 			end
 			return Enum.ContextActionResult.Pass
 		end, false, Enum.KeyCode.LeftShift, Enum.KeyCode.RightShift)
+
+		-- On ne tient pas une touche dans une fenetre qui n'a pas le focus.
+		table.insert(
+			inputConnections,
+			UserInputService.WindowFocusReleased:Connect(function()
+				setSprint(false)
+			end)
+		)
+
+		-- Nouveau corps, posture neutre. Le serveur fait la meme remise a zero
+		-- de son cote ; sans celle-ci le client se croirait a l'arret pendant
+		-- que le serveur le croit lance, et la touche paraitrait morte.
+		table.insert(
+			inputConnections,
+			player.CharacterAdded:Connect(function()
+				sprinting = false
+				;(sprintRemote :: RemoteEvent):FireServer(false)
+			end)
+		)
 	else
 		log:warn("remote RequestSprint absent : le sprint sera indisponible")
 	end
