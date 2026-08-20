@@ -581,6 +581,19 @@ end
 
 -- Enregistre une CIBLE. L'affichage la rejoint dans `step` : c'est ce qui
 -- fait qu'une perte se voit descendre au lieu d'apparaitre deja subie.
+-- Baisse minimale, en fraction de jauge, pour retenir le fantome.
+--
+-- En dessous, on considere que c'est une CONSOMMATION et non un coup : la
+-- barre descend simplement, sans laisser de trainee derriere elle.
+local GHOST_MIN_DROP = 0.03
+
+-- Ecart maximal entre le fantome et la barre reelle.
+--
+-- Filet de securite : quelle que soit la suite d'evenements, la trainee ne
+-- peut pas cacher plus d'un cinquieme de jauge. Une barre illisible au pire
+-- moment punit deux fois.
+local GHOST_MAX_GAP = 0.2
+
 local function setRow(widget: Widget, key: string, current: number, maximum: number, suffix: string?)
 	local row = widget.rows[key]
 	if not row then
@@ -591,9 +604,29 @@ local function setRow(widget: Widget, key: string, current: number, maximum: num
 
 	-- Une PERTE declenche l'eclat et retient le fantome. Un gain n'a pas a
 	-- etre dramatise : le fantome le rattrape immediatement.
-	if fraction < row.target - 0.001 then
+	--
+	-- MAIS UNE PERTE CONTINUE N'EST PAS UN COUP.
+	--
+	-- C'est le bug d'endurance, et il etait ici — pas dans le calcul serveur.
+	-- Le fantome retient la valeur d'AVANT la perte pour qu'on voie combien on
+	-- vient d'encaisser. Sa retenue etait rearmee a CHAQUE baisse. En course,
+	-- le serveur envoie une baisse dix fois par seconde : la retenue repartait
+	-- a chaque envoi, le fantome ne rattrapait jamais, et la barre affichait la
+	-- longueur d'avant le sprint pendant toute la course.
+	--
+	-- Au relachement, plus de baisse, le fantome redescendait enfin — et la
+	-- regeneration commencait dans la foulee. D'ou le symptome exact : la
+	-- remontee se voyait, la descente non.
+	--
+	-- La retenue est donc reservee aux VRAIS COUPS. Une consommation continue
+	-- vaut moins d'un pour cent de jauge par envoi ; un degat encaisse, une
+	-- plaque d'armure qui saute, c'est un ordre de grandeur au-dessus.
+	local drop = row.target - fraction
+	if drop > 0.001 then
 		row.flash = 1
-		row.ghostHold = 0.35
+		if drop >= GHOST_MIN_DROP then
+			row.ghostHold = 0.35
+		end
 	elseif fraction > row.target then
 		row.ghost = math.max(row.ghost, fraction)
 	end
@@ -728,8 +761,19 @@ function PlayerStatusWidget.step(widget: Widget, dt: number)
 		else
 			row.ghost += (row.shown - row.ghost) * math.min(1, dt * 2.4)
 		end
+		-- Le fantome ne descend jamais SOUS la barre...
 		if row.ghost < row.shown then
 			row.ghost = row.shown
+		end
+
+		-- ... et ne traine jamais tres loin AU-DESSUS.
+		--
+		-- Deuxieme garde-fou, independant du premier. Meme si une suite de
+		-- coups rearmait la retenue sans arret, le fantome ne peut pas
+		-- masquer plus d'un cinquieme de jauge : la barre reste lisible,
+		-- quoi qu'il arrive au porteur.
+		if row.ghost > row.shown + GHOST_MAX_GAP then
+			row.ghost = row.shown + GHOST_MAX_GAP
 		end
 
 		row.flash = math.max(0, row.flash - dt * 2.6)
