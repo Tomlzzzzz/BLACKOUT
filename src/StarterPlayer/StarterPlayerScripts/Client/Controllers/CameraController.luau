@@ -148,6 +148,24 @@ local function step(dt: number)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	local root = character:FindFirstChild("HumanoidRootPart")
 
+	-- --- accroupi ---------------------------------------------------------
+	--
+	-- On lit l'ATTRIBUT pose par le serveur, jamais une variable locale :
+	-- c'est la meme source que celle que les creatures consultent, donc la
+	-- camera ne peut pas descendre sans que la discretion suive.
+	--
+	-- CameraOffset plutot qu'un redimensionnement du personnage : c'est le
+	-- seul moyen d'abaisser le point de vue sans toucher aux collisions ni
+	-- au rig, et il s'interpole proprement.
+	if humanoid then
+		local crouching = player:GetAttribute("Crouched") == true
+		local wanted = if crouching then -Config.Player.crouch.cameraDrop else 0
+		local current = humanoid.CameraOffset.Y
+		if math.abs(current - wanted) > 0.01 then
+			humanoid.CameraOffset = Vector3.new(0, current + (wanted - current) * math.min(1, dt * 7), 0)
+		end
+	end
+
 	-- --- champ de vision ------------------------------------------------
 	local target = settings.baseFov
 		+ (if sprinting and not exhausted then settings.sprintFov - settings.baseFov else 0)
@@ -177,14 +195,20 @@ local function step(dt: number)
 
 		if ratio > 0.02 then
 			local running = sprinting and not exhausted
-			local rate = settings.bob.speed * (if running then settings.bob.sprintSpeed else 1)
 			local gain = ratio * (if running then settings.bob.sprintAmplitude else 1)
 
-			bobPhase += dt * rate * math.pi * 2 * (0.6 + ratio)
+			-- CADENCE EN PAS PAR SECONDE, interpolee avec la vitesse reelle.
+			-- La phase avance donc d'un tour complet par PAS, et non d'un
+			-- multiple arbitraire de l'horloge.
+			local cadence = if running
+				then settings.bob.sprintCadence
+				else settings.bob.walkCadence * (0.65 + ratio * 0.35)
+			bobPhase += dt * cadence * math.pi * 2
 
-			-- Tangage a double frequence : un pas par jambe.
-			bobRise = math.sin(bobPhase * 2) * settings.bob.rise * gain
-			bobSway = math.sin(bobPhase) * settings.bob.sway * gain
+			-- Un mouvement vertical par pas.
+			bobRise = math.sin(bobPhase) * settings.bob.rise * gain
+			-- Un roulis par FOULEE : deux pas. D'ou la demi-frequence.
+			bobSway = math.sin(bobPhase * 0.5) * settings.bob.sway * gain
 		end
 	end
 

@@ -380,7 +380,19 @@ local function sense(crawler: Crawler, now: number)
 	crawler.target = player
 	crawler.targetPosition = chosen.position
 	crawler.targetDistance = (chosen.position - crawler.root.Position).Magnitude
-	crawler.targetVisible = crawler.targetDistance <= range and hasLineOfSight(crawler, chosen.position)
+	-- ACCROUPI : la portee effective se reduit pour CE joueur.
+	--
+	-- C'est ici, et nulle part ailleurs, que s'accroupir sert a quelque
+	-- chose. La reduction s'applique a la visibilite, pas a la selection
+	-- de cible : une creature deja lancee ne perd pas sa proie parce que
+	-- celle-ci s'accroupit, elle cesse seulement de la REPERER de loin.
+	local effectiveRange = range
+	if player and player:GetAttribute("Crouched") == true then
+		effectiveRange *= Config.Player.crouch.detectionMultiplier
+	end
+
+	crawler.targetVisible = crawler.targetDistance <= effectiveRange
+		and hasLineOfSight(crawler, chosen.position)
 
 	-- Premiere fois qu'un ennemi voit ce joueur. TrackOnce se charge de
 	-- n'en garder qu'une par joueur, a vie.

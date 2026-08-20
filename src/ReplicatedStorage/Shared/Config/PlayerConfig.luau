@@ -62,6 +62,32 @@ PlayerConfig.sprint = {
 	-- casse l'endurance en silence — c'est deja arrive.
 	walkSpeed = 12,
 	sprintSpeed = 19,
+}
+
+-- ------------------------------------------------------------- Accroupi --
+--
+-- S'accroupir doit COUTER et RAPPORTER, sinon c'est une pose.
+--
+-- Ce qu'on perd : la moitie de la vitesse. Traverser une zone accroupi prend
+-- deux fois plus longtemps, et le temps est la ressource que la fenetre de
+-- contrat rationne.
+--
+-- Ce qu'on gagne : les creatures reperent de bien plus pres, et le bruit
+-- fait monter la menace deux fois moins vite. C'est ce qui en fait une
+-- decision — avancer vite en se faisant voir, ou passer lentement.
+PlayerConfig.crouch = {
+	speed = 5.5,
+
+	-- Abaissement de la camera, en studs.
+	cameraDrop = 1.7,
+
+	-- Portee de detection des creatures, multipliee. 0.5 = repere a moitie
+	-- moins loin.
+	detectionMultiplier = 0.5,
+
+	-- Menace generee, multipliee. On ne l'annule pas : rester tapi ne rend
+	-- pas invisible, ca ralentit seulement l'attention.
+	threatMultiplier = 0.4,
 
 	-- Menace ajoutee par seconde de course. Courir en zone hostile s'entend.
 	threatPerSecond = 0.25,

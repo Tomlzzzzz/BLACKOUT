@@ -256,9 +256,21 @@ local function onTriggered(state: ContainerState, player: Player)
 		-- Fouiller fait du bruit, et emporter une piece rare en fait
 		-- beaucoup plus. Les montants vivent dans ThreatConfig : on passe
 		-- des identifiants de source, jamais des nombres.
+		--
+		-- FOUILLER ACCROUPI FAIT MOINS DE BRUIT. C'est le second interet
+		-- de la position, avec la portee de detection reduite : on peut
+		-- vider un conteneur sans reveiller le quartier, au prix du temps
+		-- passe a s'y trainer.
+		--
+		-- Le coup de feu, lui, garde sa valeur pleine : une arme ne devient
+		-- pas silencieuse parce qu'on plie les genoux.
 		local threatService = context and context.Get("ThreatService")
 		if threatService then
-			(threatService :: any):AddSource("LOOT_PICKUP", #granted)
+			local noise = #granted
+			if player:GetAttribute("Crouched") == true then
+				noise *= Config.Player.crouch.threatMultiplier
+			end
+			;(threatService :: any):AddSource("LOOT_PICKUP", noise)
 			for _, stack in granted do
 				local def = ItemDatabase.get(stack.id)
 				if def then

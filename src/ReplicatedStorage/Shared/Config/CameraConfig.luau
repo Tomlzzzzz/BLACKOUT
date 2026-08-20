@@ -64,39 +64,41 @@ CameraConfig.damageKick = {
 	decay = 7,
 }
 
--- Balancement de marche. Faible : en premiere personne un bob trop marque
--- donne la nausee en dix minutes, et les sessions visent vingt-cinq.
 -- Balancement de marche.
 --
--- CE QUI N'ALLAIT PAS : le balancement ne produisait QUE du roulis. Marcher
--- faisait donc pencher la tete a gauche puis a droite, comme un metronome —
--- un mouvement qu'aucun corps ne fait en avancant, et le premier a donner la
--- nausee.
+-- LE MOUVEMENT SUIT LES PAS. C'est la seule regle qui compte ici.
 --
--- Une tete qui marche monte et descend, avec un LEGER roulis en
--- accompagnement. D'ou deux composantes :
+-- Deux versions ont echoue avant celle-ci. La premiere ne produisait QUE du
+-- roulis : marcher faisait pencher la tete de gauche a droite comme un
+-- metronome, un mouvement qu'aucun corps ne fait en avancant. La seconde a
+-- ajoute le tangage mais l'a cadence a DEUX FOIS la phase, soit pres de
+-- quatre oscillations verticales par seconde — injouable a l'ecran, et sans
+-- rapport avec la marche de qui que ce soit.
 --
---   `rise`  tangage, a DOUBLE frequence — un pas par jambe, donc deux
---           montees par cycle complet
---   `sway`  roulis, a frequence simple, nettement plus faible
+-- La cadence s'exprime donc en PAS PAR SECONDE, et l'anatomie decoule :
 --
--- La course ne se contente pas d'accelerer le cycle : elle l'amplifie aussi,
--- sinon sprinter ressemble a une marche en avance rapide.
+--   `rise`  un mouvement vertical PAR PAS
+--   `sway`  un roulis par FOULEE, soit un pas sur deux
+--
+-- Un humain marche a peu pres a 1.75 pas/seconde et court a 2.5. Ce sont ces
+-- valeurs-la, pas un multiple arbitraire de l'horloge — et c'est aussi la
+-- phase sur laquelle brancher les futurs bruits de pas.
 CameraConfig.bob = {
-	-- Mesure en jeu a 0.5 : la visee ne montait que de 0.0098 en
-	-- LookVector.Y sur un cycle complet, soit un balancement qu'on ne
-	-- percoit pas. A 0.8 il se SENT sans donner la nausee — c'est la
-	-- valeur a bouger si la marche parait encore trop plate ou trop molle.
-	rise = 0.8,
-	sway = 0.18,
-	speed = 1.15,
+	rise = 0.9,
+	sway = 0.35,
+
+	-- Cadence, en pas par seconde.
+	walkCadence = 1.75,
+	sprintCadence = 2.5,
+
 	-- Vitesse de deplacement au-dela de laquelle le balancement est plein.
 	-- Calee sur la marche : on veut le balancement complet en marchant, pas
 	-- seulement en courant.
 	referenceSpeed = 12,
-	-- Multiplicateurs appliques quand le joueur court.
-	sprintAmplitude = 1.45,
-	sprintSpeed = 1.5,
+
+	-- Amplitude en course. La cadence monte deja ; ce facteur ajoute
+	-- l'ampleur, sinon courir ressemble a une marche en avance rapide.
+	sprintAmplitude = 1.4,
 }
 
 -- ------------------------------------------------ Optique embarquee -----

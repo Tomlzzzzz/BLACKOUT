@@ -57,6 +57,12 @@ local vitalsDirty: { [Player]: boolean } = {}
 -- Le joueur MAINTIENT-il la touche de course ? Une intention, pas un droit :
 -- le serveur decide ensuite s'il accelere reellement.
 local sprintIntent: { [Player]: boolean } = {}
+
+-- Meme chose pour l'accroupi. L'attribut `Crouched` qui en decoule est pose
+-- par le SERVEUR : les creatures le lisent pour reduire leur portee de
+-- detection, et un client qui pourrait le poser lui-meme se declarerait
+-- accroupi en pleine course.
+local crouchIntent: { [Player]: boolean } = {}
 local connections: { RBXScriptConnection } = {}
 
 -- Une connexion Died par joueur, remplacee a chaque reapparition.
@@ -316,11 +322,28 @@ local function updateStamina(player: Player, dt: number, now: number)
 	-- traine, en course on accelere, sinon on marche. Le client demande, il
 	-- ne decide pas — sinon n'importe qui court indefiniment.
 	local sprint = Config.Player.sprint
-	local wantsSprint = sprintIntent[player] == true and not state.exhausted and state.value > 0
-	local target = if state.exhausted
-		then Config.Player.stamina.exhaustedSpeed
+	local crouch = Config.Player.crouch
+
+	-- L'ACCROUPI PRIME SUR LA COURSE. On ne sprinte pas accroupi : laisser
+	-- les deux se cumuler donnerait le meilleur des deux mondes — la
+	-- discretion et la vitesse — et viderait la decision de son sens.
+	local crouching = crouchIntent[player] == true
+	local wantsSprint = not crouching
+		and sprintIntent[player] == true
+		and not state.exhausted
+		and state.value > 0
+
+	local target = if crouching
+		then crouch.speed
+		elseif state.exhausted then Config.Player.stamina.exhaustedSpeed
 		elseif wantsSprint then sprint.sprintSpeed
 		else sprint.walkSpeed
+
+	-- Attribut replique : c'est la SEULE facon dont EnemyService et le HUD
+	-- apprennent qu'un joueur est accroupi.
+	if player:GetAttribute("Crouched") ~= crouching then
+		player:SetAttribute("Crouched", crouching)
+	end
 
 	if humanoid.WalkSpeed ~= target then
 		humanoid.WalkSpeed = target
@@ -645,6 +668,7 @@ local function onPlayerRemoving(player: Player)
 
 	staminas[player] = nil
 	sprintIntent[player] = nil
+	crouchIntent[player] = nil
 	vitals[player] = nil
 	damageTaken[player] = nil
 
@@ -793,6 +817,19 @@ function PlayerService.Start()
 		)
 	else
 		log:warn("remote RequestSprint absent : le sprint sera indisponible")
+	end
+
+	-- Intention d'accroupi, meme contrat que la course.
+	local crouchRemote = context and context.Remotes:FindFirstChild("RequestCrouch")
+	if crouchRemote and crouchRemote:IsA("RemoteEvent") then
+		table.insert(
+			connections,
+			crouchRemote.OnServerEvent:Connect(function(player, wants)
+				crouchIntent[player] = wants == true
+			end)
+		)
+	else
+		log:warn("remote RequestCrouch absent : l'accroupi sera indisponible")
 	end
 
 	installDebug()

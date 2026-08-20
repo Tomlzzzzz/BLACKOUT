@@ -33,9 +33,23 @@ type FrameEntry = {
 	offsetY: number,
 }
 
+-- Un libelle qui peut decrocher.
+--
+-- DEUX MODES, parce que le HUD contient deux natures de texte :
+--
+--   fixe   le texte ne change jamais (« MENACE », « APPUYER »). On garde
+--          la reference une fois pour toutes.
+--   vivant le widget le REECRIT en permanence — la transmission du
+--          commanditaire s'ecrit lettre par lettre, le journal defile. Une
+--          reference figee y afficherait un message perime.
+--
+-- En mode vivant, on relit le texte au moment de brouiller et on ne restaure
+-- QUE si personne n'a ecrit entre-temps : `scrambled` sert de temoin.
 type LabelEntry = {
 	label: TextLabel,
+	live: boolean,
 	text: string,
+	scrambled: string?,
 	restoreAt: number,
 }
 
@@ -85,7 +99,33 @@ function Panic.watchLabel(widget: Widget, label: TextLabel?)
 	if not label then
 		return
 	end
-	table.insert(widget.labels, { label = label, text = label.Text, restoreAt = 0 })
+	table.insert(widget.labels, {
+		label = label,
+		live = false,
+		text = label.Text,
+		scrambled = nil,
+		restoreAt = 0,
+	})
+end
+
+-- Libelle REECRIT par son widget : transmission du commanditaire, lignes du
+-- journal d'evenements. On ne fige aucune reference, on relit a chaque
+-- brouillage.
+--
+-- C'est ce qui manquait : le pop-up d'information est precisement l'endroit
+-- ou un decrochage se lit le mieux — c'est une liaison radio — et c'etait le
+-- seul texte que la panique ne pouvait pas toucher.
+function Panic.watchLive(widget: Widget, label: TextLabel?)
+	if not label then
+		return
+	end
+	table.insert(widget.labels, {
+		label = label,
+		live = true,
+		text = "",
+		scrambled = nil,
+		restoreAt = 0,
+	})
 end
 
 -- Le texte fixe d'un libelle surveille a change (traduction, contrat
@@ -101,14 +141,24 @@ function Panic.refresh(widget: Widget, label: TextLabel, text: string)
 	end
 end
 
-local function scramble(text: string): string
+-- Remplace `count` caracteres au hasard par des glyphes parasites.
+--
+-- Un seul caractere pendant neuf centiemes de seconde ne se voyait pas. On
+-- en abime plusieurs, plus longtemps : un decrochage doit se REMARQUER,
+-- sinon autant ne rien faire.
+local function scramble(text: string, count: number): string
 	if #text == 0 then
 		return text
 	end
-	local at = math.random(1, #text)
-	local pick = math.random(1, #Theme.glitchGlyphs)
-	local glyph = string.sub(Theme.glitchGlyphs, pick, pick)
-	return string.sub(text, 1, at - 1) .. glyph .. string.sub(text, at + 1)
+
+	local out = text
+	for _ = 1, math.max(1, count) do
+		local at = math.random(1, #out)
+		local pick = math.random(1, #Theme.glitchGlyphs)
+		local glyph = string.sub(Theme.glitchGlyphs, pick, pick)
+		out = string.sub(out, 1, at - 1) .. glyph .. string.sub(out, at + 1)
+	end
+	return out
 end
 
 -- `level` est le rythme cardiaque normalise, 0 au repos, 1 a l'affolement.
@@ -133,7 +183,13 @@ function Panic.step(widget: Widget, dt: number, level: number)
 				entry.offsetX, entry.offsetY = 0, 0
 			end
 			for _, entry in widget.labels do
-				entry.label.Text = entry.text
+				-- On ne repose QUE ce qu'on a soi-meme brouille. Ecraser un
+				-- libelle vivant avec une reference figee y afficherait un
+				-- message deja perime.
+				if entry.scrambled and entry.label.Text == entry.scrambled then
+					entry.label.Text = entry.text
+				end
+				entry.scrambled = nil
 				entry.restoreAt = 0
 			end
 		end
@@ -166,7 +222,13 @@ function Panic.step(widget: Widget, dt: number, level: number)
 	-- --- decrochage des libelles ------------------------------------------
 	for _, entry in widget.labels do
 		if entry.restoreAt > 0 and widget.clock >= entry.restoreAt then
-			entry.label.Text = entry.text
+			-- COMPARAISON AVANT ECRITURE. Si le widget a reecrit son libelle
+			-- pendant le decrochage, sa version est plus recente que la
+			-- notre : on ne la touche pas.
+			if entry.scrambled and entry.label.Text == entry.scrambled then
+				entry.label.Text = entry.text
+			end
+			entry.scrambled = nil
 			entry.restoreAt = 0
 		end
 	end
@@ -177,8 +239,20 @@ function Panic.step(widget: Widget, dt: number, level: number)
 
 		if #widget.labels > 0 then
 			local entry = widget.labels[math.random(#widget.labels)]
-			entry.label.Text = scramble(entry.text)
-			entry.restoreAt = widget.clock + settings.glitchHold
+
+			-- Un libelle vivant se RELIT : sa reference figee serait un
+			-- message perime. Un libelle fixe garde la sienne.
+			local source = if entry.live then entry.label.Text else entry.text
+
+			if #source > 0 then
+				local span = settings.glitchCharsMax - settings.glitchCharsMin
+				local count = math.floor(settings.glitchCharsMin + span * intensity + 0.5)
+
+				entry.text = source
+				entry.scrambled = scramble(source, count)
+				entry.label.Text = entry.scrambled :: string
+				entry.restoreAt = widget.clock + settings.glitchHold
+			end
 		end
 	end
 end

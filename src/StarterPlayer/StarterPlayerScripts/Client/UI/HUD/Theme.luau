@@ -398,9 +398,20 @@ Theme.panic = {
 	rerollGain = 16,
 
 	-- Decrochages de libelle par seconde, et duree d'un decrochage.
-	glitchBase = 0.4,
-	glitchGain = 2.8,
-	glitchHold = 0.09,
+	--
+	-- Les premieres valeurs (0.4 a 3.2 par seconde, 0.09 s de maintien, UN
+	-- caractere) etaient invisibles a l'usage : un glyphe qui change pendant
+	-- neuf centiemes de seconde quelque part sur l'ecran ne se remarque pas.
+	-- On monte la cadence, la duree, et surtout le NOMBRE de caracteres.
+	glitchBase = 1.2,
+	glitchGain = 5,
+	glitchHold = 0.13,
+
+	-- Caracteres brouilles par decrochage, du seuil au plein regime. Trois
+	-- sur un mot court, c'est illisible une fraction de seconde — ce qui est
+	-- exactement l'effet cherche.
+	glitchCharsMin = 1,
+	glitchCharsMax = 3,
 }
 
 Theme.glitchGlyphs = "#%&@$*!/\\|=+<>~^"

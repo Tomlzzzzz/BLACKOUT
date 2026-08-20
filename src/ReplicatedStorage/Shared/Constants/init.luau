@@ -74,6 +74,11 @@ Constants.REMOTES = {
 	-- decide s'il accelere reellement : endurance, etat, vie.
 	RequestSprint = "RemoteEvent",
 
+	-- Meme principe pour l'accroupi : une INTENTION. C'est le serveur qui
+	-- pose l'attribut lu par les creatures, sans quoi un client modifie
+	-- se declarerait accroupi en courant.
+	RequestCrouch = "RemoteEvent",
+
 	-- Verdict d'une demande d'emplacement. Sans lui, une action refusee —
 	-- vie deja pleine, case vide — ne produisait rien du tout a l'ecran et
 	-- passait pour un bug.

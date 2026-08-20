@@ -58,6 +58,7 @@ local EventFeed = require(script.Parent.EventFeed)
 local BandBanner = require(script.Parent.BandBanner)
 local DebriefWidget = require(script.Parent.DebriefWidget)
 local Panic = require(script.Parent.Panic)
+local PromptBillboard = require(script.Parent.PromptBillboard)
 
 local HUDController = {}
 
@@ -116,6 +117,7 @@ export type Hud = {
 	bandBanner: BandBanner.Widget,
 	debrief: DebriefWidget.Widget,
 	panic: Panic.Widget,
+	promptBillboard: PromptBillboard.Widget,
 	lastBand: string,
 
 	profile: string,
@@ -211,6 +213,7 @@ function HUDController.mount(playerGui: PlayerGui): Hud
 		-- se glisser entre deux widgets.
 		debrief = DebriefWidget.create(playerGui),
 		panic = Panic.create(),
+		promptBillboard = PromptBillboard.create(),
 		lastBand = "SAFE",
 		profile = "full",
 		compassAccumulator = 0,
@@ -235,7 +238,9 @@ function HUDController.mount(playerGui: PlayerGui): Hud
 	--
 	-- PlayerStatus est volontairement ABSENT de la liste : il a deja son
 	-- propre tremblement, l'ajouter ici le ferait vibrer deux fois.
-	for _, name in { "Objectives", "Threat", "Weapon", "WorldInfo", "Extraction", "Identity" } do
+	for _, name in
+		{ "Objectives", "Threat", "Weapon", "WorldInfo", "Extraction", "Identity", "Transmission", "EventFeed" }
+	do
 		Panic.watchFrame(hud.panic, hud.gui:FindFirstChild(name) :: GuiObject?)
 	end
 
@@ -255,6 +260,16 @@ function HUDController.mount(playerGui: PlayerGui): Hud
 	Panic.watchLabel(hud.panic, hud.threat.maxLabel)
 	Panic.watchLabel(hud.panic, hud.objectives.footer)
 	Panic.watchLabel(hud.panic, hud.objectives.footerSuffix)
+
+	-- LE POP-UP D'INFORMATION. C'est une liaison radio : c'est
+	-- precisement le texte ou un decrochage se lit le mieux, et c'etait
+	-- le seul que la panique ne touchait pas.
+	--
+	-- Il passe par `watchLive` parce que son widget le REECRIT en
+	-- permanence : la transmission s'ecrit lettre par lettre. Une
+	-- reference figee y remettrait un message deja perime.
+	Panic.watchLive(hud.panic, hud.transmission.body)
+	Panic.watchLive(hud.panic, hud.transmission.sender)
 
 	return hud
 end
@@ -414,6 +429,7 @@ function HUDController.step(hud: Hud, dt: number)
 	-- Recalculer un affolement ici donnerait deux horloges qui derivent, et
 	-- un HUD dont les panneaux tremblent a contretemps du coeur.
 	Panic.step(hud.panic, dt, PlayerStatusWidget.getHeat(hud.status))
+	PromptBillboard.step(hud.promptBillboard, dt)
 
 	-- Le rapport REMPLACE le HUD, il ne se pose pas dessus.
 	--
@@ -448,6 +464,7 @@ end
 
 function HUDController.destroy(hud: Hud)
 	hud.gui:Destroy()
+	PromptBillboard.destroy(hud.promptBillboard)
 	DebriefWidget.destroy(hud.debrief)
 	DamageFeedback.destroy(hud.feedback)
 end
@@ -728,6 +745,9 @@ function HUDController.bind(hud: Hud): { RBXScriptConnection }
 	table.insert(
 		connections,
 		ProximityPromptService.PromptShown:Connect(function(prompt)
+			-- Le E se pose SUR l'objet vise. Devant deux caisses cote a
+			-- cote, le panneau central ne dit pas laquelle on va fouiller.
+			PromptBillboard.show(hud.promptBillboard, prompt.Parent, prompt.KeyboardKeyCode.Name)
 			InteractionWidget.setPrompt(
 				hud.interaction,
 				Locale.maybe(prompt.ActionText) or prompt.ActionText,
@@ -741,6 +761,7 @@ function HUDController.bind(hud: Hud): { RBXScriptConnection }
 	table.insert(
 		connections,
 		ProximityPromptService.PromptHidden:Connect(function()
+			PromptBillboard.hide(hud.promptBillboard)
 			InteractionWidget.cancelHold(hud.interaction)
 			InteractionWidget.setPrompt(hud.interaction, nil)
 		end)
@@ -759,6 +780,7 @@ function HUDController.bind(hud: Hud): { RBXScriptConnection }
 		connections,
 		ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt)
 			InteractionWidget.beginHold(hud.interaction, prompt.HoldDuration)
+			PromptBillboard.beginHold(hud.promptBillboard, prompt.HoldDuration)
 		end)
 	)
 
@@ -766,6 +788,7 @@ function HUDController.bind(hud: Hud): { RBXScriptConnection }
 		connections,
 		ProximityPromptService.PromptButtonHoldEnded:Connect(function()
 			InteractionWidget.cancelHold(hud.interaction)
+			PromptBillboard.cancelHold(hud.promptBillboard)
 		end)
 	)
 
@@ -777,8 +800,10 @@ function HUDController.bind(hud: Hud): { RBXScriptConnection }
 		ProximityPromptService.PromptTriggered:Connect(function(prompt)
 			if prompt.HoldDuration <= 0 then
 				InteractionWidget.beginHold(hud.interaction, 0)
+				PromptBillboard.beginHold(hud.promptBillboard, 0)
 			end
 			InteractionWidget.completeHold(hud.interaction)
+			PromptBillboard.completeHold(hud.promptBillboard)
 		end)
 	)
 
@@ -941,6 +966,47 @@ function HUDController.bindInput(hud: Hud)
 		log:warn("remote RequestSprint absent : le sprint sera indisponible")
 	end
 
+	-- ACCROUPI : une BASCULE, pas un maintien.
+	--
+	-- Une partie de furtivite se joue accroupi pendant des minutes.
+	-- Demander de garder le doigt sur la touche tout ce temps est une
+	-- punition ergonomique, pas une decision de jeu.
+	--
+	-- L'etat vit ICI parce que c'est une preference d'entree ; ce que le
+	-- serveur recoit reste une intention qu'il arbitre.
+	local crouchRemote = remotes:WaitForChild("RequestCrouch", 10)
+	if crouchRemote and crouchRemote:IsA("RemoteEvent") then
+		local crouched = false
+
+		local function setCrouch(value: boolean)
+			if crouched == value then
+				return
+			end
+			crouched = value
+			;(crouchRemote :: RemoteEvent):FireServer(value)
+		end
+
+		ContextActionService:BindAction("BlackoutCrouch", function(_, state)
+			if state == Enum.UserInputState.Begin then
+				setCrouch(not crouched)
+			end
+			return Enum.ContextActionResult.Pass
+		end, false, Enum.KeyCode.C, Enum.KeyCode.LeftControl)
+
+		-- Nouveau corps, position debout. Sans ca le client se croit
+		-- accroupi apres un redeploiement et la touche parait morte au
+		-- premier appui.
+		table.insert(
+			inputConnections,
+			player.CharacterAdded:Connect(function()
+				crouched = false
+				;(crouchRemote :: RemoteEvent):FireServer(false)
+			end)
+		)
+	else
+		log:warn("remote RequestCrouch absent : l'accroupi sera indisponible")
+	end
+
 	-- E : acquitter le rapport de sortie.
 	--
 	-- La meme touche que les invites d'interaction, a dessein : c'est la
@@ -999,6 +1065,7 @@ function HUDController.unbindInput()
 	ContextActionService:UnbindAction("BlackoutMap")
 	ContextActionService:UnbindAction("BlackoutAcknowledge")
 	ContextActionService:UnbindAction("BlackoutSprint")
+	ContextActionService:UnbindAction("BlackoutCrouch")
 
 	for _, connection in inputConnections do
 		connection:Disconnect()
