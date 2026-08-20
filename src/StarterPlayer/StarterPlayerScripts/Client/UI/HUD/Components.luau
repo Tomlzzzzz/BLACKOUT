@@ -84,6 +84,32 @@ function Components.label(props: LabelProps, parent: Instance): TextLabel
 	return label
 end
 
+-- BROUILLAGE DE TEXTE. Source unique.
+--
+-- Le bloc de vitaux avait le sien, la panique generale en avait un autre,
+-- moins agressif : deux coins de l'ecran qui se degradaient differemment
+-- racontent deux appareils, pas un seul en train de lacher. Ils partagent
+-- desormais cette fonction, et donc exactement le meme grain.
+--
+-- 45 % des caracteres NON BLANCS sont remplaces. Les espaces sont
+-- preserves : c'est ce qui garde la silhouette du mot lisible pendant que
+-- son contenu part en morceaux, et qui distingue un signal degrade d'une
+-- bouillie de symboles.
+function Components.scramble(text: string): string
+	local glyphs = Theme.glitchGlyphs
+	local out = {}
+	for index = 1, #text do
+		local char = text:sub(index, index)
+		if char ~= " " and math.random() < 0.45 then
+			local pick = math.random(1, #glyphs)
+			table.insert(out, glyphs:sub(pick, pick))
+		else
+			table.insert(out, char)
+		end
+	end
+	return table.concat(out)
+end
+
 -- ------------------------------------------------------------ Cadres ----
 
 export type Panel = {

@@ -58,7 +58,6 @@ local EventFeed = require(script.Parent.EventFeed)
 local BandBanner = require(script.Parent.BandBanner)
 local DebriefWidget = require(script.Parent.DebriefWidget)
 local Panic = require(script.Parent.Panic)
-local PromptBillboard = require(script.Parent.PromptBillboard)
 
 local HUDController = {}
 
@@ -117,7 +116,6 @@ export type Hud = {
 	bandBanner: BandBanner.Widget,
 	debrief: DebriefWidget.Widget,
 	panic: Panic.Widget,
-	promptBillboard: PromptBillboard.Widget,
 	lastBand: string,
 
 	profile: string,
@@ -213,7 +211,6 @@ function HUDController.mount(playerGui: PlayerGui): Hud
 		-- se glisser entre deux widgets.
 		debrief = DebriefWidget.create(playerGui),
 		panic = Panic.create(),
-		promptBillboard = PromptBillboard.create(),
 		lastBand = "SAFE",
 		profile = "full",
 		compassAccumulator = 0,
@@ -425,11 +422,10 @@ function HUDController.step(hud: Hud, dt: number)
 	BootSequence.step(hud.boot, dt)
 	DebriefWidget.step(hud.debrief, dt)
 
-	-- La panique lit le rythme cardiaque du bloc de vitaux : SOURCE UNIQUE.
-	-- Recalculer un affolement ici donnerait deux horloges qui derivent, et
-	-- un HUD dont les panneaux tremblent a contretemps du coeur.
-	Panic.step(hud.panic, dt, PlayerStatusWidget.getHeat(hud.status))
-	PromptBillboard.step(hud.promptBillboard, dt)
+	-- La panique lit la DEGRADATION du bloc de vitaux : source unique.
+	-- Recalculer ici donnerait deux horloges qui derivent, et un HUD dont
+	-- les panneaux tremblent a contretemps de leur propre cardiogramme.
+	Panic.step(hud.panic, dt, PlayerStatusWidget.getDecay(hud.status))
 
 	-- Le rapport REMPLACE le HUD, il ne se pose pas dessus.
 	--
@@ -464,7 +460,6 @@ end
 
 function HUDController.destroy(hud: Hud)
 	hud.gui:Destroy()
-	PromptBillboard.destroy(hud.promptBillboard)
 	DebriefWidget.destroy(hud.debrief)
 	DamageFeedback.destroy(hud.feedback)
 end
@@ -745,9 +740,6 @@ function HUDController.bind(hud: Hud): { RBXScriptConnection }
 	table.insert(
 		connections,
 		ProximityPromptService.PromptShown:Connect(function(prompt)
-			-- Le E se pose SUR l'objet vise. Devant deux caisses cote a
-			-- cote, le panneau central ne dit pas laquelle on va fouiller.
-			PromptBillboard.show(hud.promptBillboard, prompt.Parent, prompt.KeyboardKeyCode.Name)
 			InteractionWidget.setPrompt(
 				hud.interaction,
 				Locale.maybe(prompt.ActionText) or prompt.ActionText,
@@ -761,7 +753,6 @@ function HUDController.bind(hud: Hud): { RBXScriptConnection }
 	table.insert(
 		connections,
 		ProximityPromptService.PromptHidden:Connect(function()
-			PromptBillboard.hide(hud.promptBillboard)
 			InteractionWidget.cancelHold(hud.interaction)
 			InteractionWidget.setPrompt(hud.interaction, nil)
 		end)
@@ -780,7 +771,6 @@ function HUDController.bind(hud: Hud): { RBXScriptConnection }
 		connections,
 		ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt)
 			InteractionWidget.beginHold(hud.interaction, prompt.HoldDuration)
-			PromptBillboard.beginHold(hud.promptBillboard, prompt.HoldDuration)
 		end)
 	)
 
@@ -788,7 +778,6 @@ function HUDController.bind(hud: Hud): { RBXScriptConnection }
 		connections,
 		ProximityPromptService.PromptButtonHoldEnded:Connect(function()
 			InteractionWidget.cancelHold(hud.interaction)
-			PromptBillboard.cancelHold(hud.promptBillboard)
 		end)
 	)
 
@@ -800,10 +789,8 @@ function HUDController.bind(hud: Hud): { RBXScriptConnection }
 		ProximityPromptService.PromptTriggered:Connect(function(prompt)
 			if prompt.HoldDuration <= 0 then
 				InteractionWidget.beginHold(hud.interaction, 0)
-				PromptBillboard.beginHold(hud.promptBillboard, 0)
 			end
 			InteractionWidget.completeHold(hud.interaction)
-			PromptBillboard.completeHold(hud.promptBillboard)
 		end)
 	)
 

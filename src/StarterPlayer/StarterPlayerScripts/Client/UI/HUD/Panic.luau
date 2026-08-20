@@ -1,27 +1,24 @@
 --!strict
--- Panique generale du HUD.
+-- Degradation generale du HUD.
 --
--- Le bloc de vitaux tremblait et se brouillait quand le rythme cardiaque
--- montait ; le reste de l'interface restait impeccable. Un HUD dont un seul
--- coin panique pendant que les autres panneaux tiennent parfaitement raconte
--- que le moniteur medical est mal fixe, pas que le porteur est en train de
--- perdre pied.
+-- LE BLOC DE VITAUX EST LA REFERENCE. Ce module ne fait pas « quelque chose
+-- de ressemblant » : il applique EXACTEMENT le meme traitement au reste de
+-- l'equipement — memes reglages (`Theme.monitor`), meme brouillage
+-- (`Components.scramble`), meme duree, meme couleur d'alerte, meme
+-- tremblement d'un pixel.
 --
--- Ce module propage la MEME degradation a tout l'equipement : les panneaux
--- tremblent, les libelles decrochent. La source est unique — le rythme
--- cardiaque calcule par le bloc de vitaux — pour que tout batte ensemble.
+-- Un HUD dont un seul coin se degrade pendant que les autres panneaux
+-- tiennent parfaitement raconte que le moniteur medical est mal fixe. Deux
+-- coins qui se degradent DIFFEREMMENT racontent deux appareils. Il n'y en a
+-- qu'un, sangle sur un porteur qui va mal.
 --
--- DEUX REGLES QUI ONT DICTE L'IMPLEMENTATION
+-- LA SOURCE EST UNIQUE
 --
--- 1. Rien ne bouge tant qu'on va bien. En dessous du seuil, les panneaux
---    sont exactement a leur place : la panique doit etre un EVENEMENT, pas
---    une texture permanente qu'on cesse de voir au bout de trois minutes.
---
--- 2. Le tremblement se retire par TIRAGES, pas par image. Un decalage
---    reechantillonne soixante fois par seconde n'est pas un tremblement,
---    c'est du bruit blanc : illisible, et fatigant en dix secondes. On tire
---    une nouvelle position quelques fois par seconde, et on s'y tient.
+-- La degradation n'est pas recalculee ici : elle est LUE sur le bloc de
+-- vitaux (`PlayerStatusWidget.getDecay`). Deux horloges deriveraient, et le
+-- HUD tremblerait a contretemps de son propre cardiogramme.
 
+local Components = require(script.Parent.Components)
 local Theme = require(script.Parent.Theme)
 
 local Panic = {}
@@ -29,26 +26,25 @@ local Panic = {}
 type FrameEntry = {
 	frame: GuiObject,
 	base: UDim2,
-	offsetX: number,
-	offsetY: number,
 }
 
 -- Un libelle qui peut decrocher.
 --
 -- DEUX MODES, parce que le HUD contient deux natures de texte :
 --
---   fixe   le texte ne change jamais (« MENACE », « APPUYER »). On garde
---          la reference une fois pour toutes.
+--   fixe   le texte ne change jamais (« MENACE », « APPUYER »). La
+--          reference est prise une fois pour toutes.
 --   vivant le widget le REECRIT en permanence — la transmission du
 --          commanditaire s'ecrit lettre par lettre, le journal defile. Une
 --          reference figee y afficherait un message perime.
 --
--- En mode vivant, on relit le texte au moment de brouiller et on ne restaure
--- QUE si personne n'a ecrit entre-temps : `scrambled` sert de temoin.
+-- En mode vivant on relit au moment de brouiller, et on ne restaure QUE si
+-- personne n'a ecrit entre-temps : `scrambled` sert de temoin.
 type LabelEntry = {
 	label: TextLabel,
 	live: boolean,
 	text: string,
+	color: Color3,
 	scrambled: string?,
 	restoreAt: number,
 }
@@ -57,21 +53,20 @@ export type Widget = {
 	frames: { FrameEntry },
 	labels: { LabelEntry },
 	clock: number,
-	rerollAt: number,
-	glitchAt: number,
-	level: number,
-	settled: boolean,
+	glitchIn: number,
+	active: boolean,
 }
+
+-- Duree d'un decrochage. Identique a celle du bloc de vitaux.
+local HOLD = 0.12
 
 function Panic.create(): Widget
 	return {
 		frames = {},
 		labels = {},
 		clock = 0,
-		rerollAt = 0,
-		glitchAt = 0,
-		level = 0,
-		settled = true,
+		glitchIn = 0,
+		active = false,
 	}
 end
 
@@ -82,19 +77,9 @@ function Panic.watchFrame(widget: Widget, frame: GuiObject?)
 	if not frame then
 		return
 	end
-	table.insert(widget.frames, {
-		frame = frame,
-		base = frame.Position,
-		offsetX = 0,
-		offsetY = 0,
-	})
+	table.insert(widget.frames, { frame = frame, base = frame.Position })
 end
 
--- Enregistre un libelle dont le texte peut decrocher.
---
--- Reserve aux libelles FIXES — titres, unites, etiquettes. Brouiller une
--- valeur chiffree ferait douter le joueur du chiffre lui-meme, ce qui est
--- une tout autre promesse que « l'appareil fatigue ».
 function Panic.watchLabel(widget: Widget, label: TextLabel?)
 	if not label then
 		return
@@ -103,18 +88,18 @@ function Panic.watchLabel(widget: Widget, label: TextLabel?)
 		label = label,
 		live = false,
 		text = label.Text,
+		color = label.TextColor3,
 		scrambled = nil,
 		restoreAt = 0,
 	})
 end
 
 -- Libelle REECRIT par son widget : transmission du commanditaire, lignes du
--- journal d'evenements. On ne fige aucune reference, on relit a chaque
--- brouillage.
+-- journal d'evenements.
 --
--- C'est ce qui manquait : le pop-up d'information est precisement l'endroit
--- ou un decrochage se lit le mieux — c'est une liaison radio — et c'etait le
--- seul texte que la panique ne pouvait pas toucher.
+-- C'est le pop-up d'information — precisement l'endroit ou un decrochage se
+-- lit le mieux, puisque c'est une liaison radio — et c'etait le seul texte
+-- que la degradation ne pouvait pas toucher.
 function Panic.watchLive(widget: Widget, label: TextLabel?)
 	if not label then
 		return
@@ -123,144 +108,93 @@ function Panic.watchLive(widget: Widget, label: TextLabel?)
 		label = label,
 		live = true,
 		text = "",
+		color = label.TextColor3,
 		scrambled = nil,
 		restoreAt = 0,
 	})
 end
 
--- Le texte fixe d'un libelle surveille a change (traduction, contrat
--- different) : on reprend la nouvelle reference.
-function Panic.refresh(widget: Widget, label: TextLabel, text: string)
+-- Repose un libelle, mais SEULEMENT si c'est bien notre brouillage qui est
+-- encore a l'ecran. Si le widget a reecrit entre-temps, sa version est plus
+-- recente que la notre.
+local function restore(entry: LabelEntry)
+	if entry.scrambled and entry.label.Text == entry.scrambled then
+		entry.label.Text = entry.text
+		entry.label.TextColor3 = entry.color
+	end
+	entry.scrambled = nil
+	entry.restoreAt = 0
+end
+
+-- `decay` est la degradation lue sur le bloc de vitaux : 0 quand tout va
+-- bien, 1 a l'agonie.
+function Panic.step(widget: Widget, dt: number, decay: number)
+	widget.clock += dt
+	local level = math.clamp(decay, 0, 1)
+
+	-- Les libelles deja brouilles reviennent a leur heure, panique ou pas.
 	for _, entry in widget.labels do
-		if entry.label == label then
-			entry.text = text
-			entry.restoreAt = 0
-			entry.label.Text = text
-			return
+		if entry.restoreAt > 0 and widget.clock >= entry.restoreAt then
+			restore(entry)
 		end
 	end
-end
 
--- Remplace `count` caracteres au hasard par des glyphes parasites.
---
--- Un seul caractere pendant neuf centiemes de seconde ne se voyait pas. On
--- en abime plusieurs, plus longtemps : un decrochage doit se REMARQUER,
--- sinon autant ne rien faire.
-local function scramble(text: string, count: number): string
-	if #text == 0 then
-		return text
-	end
-
-	local out = text
-	for _ = 1, math.max(1, count) do
-		local at = math.random(1, #out)
-		local pick = math.random(1, #Theme.glitchGlyphs)
-		local glyph = string.sub(Theme.glitchGlyphs, pick, pick)
-		out = string.sub(out, 1, at - 1) .. glyph .. string.sub(out, at + 1)
-	end
-	return out
-end
-
--- `level` est le rythme cardiaque normalise, 0 au repos, 1 a l'affolement.
-function Panic.step(widget: Widget, dt: number, level: number)
-	widget.clock += dt
-	widget.level = math.clamp(level, 0, 1)
-
-	local settings = Theme.panic
-	local intensity = 0
-	if widget.level > settings.startsAt then
-		intensity = (widget.level - settings.startsAt) / (1 - settings.startsAt)
-	end
-
-	-- Retour au calme : on repose tout EXACTEMENT une fois, puis on ne
-	-- touche plus a rien. Continuer a ecrire les positions a chaque image
-	-- pendant qu'il ne se passe rien coute pour rien.
-	if intensity <= 0 then
-		if not widget.settled then
-			widget.settled = true
+	if level <= 0 then
+		-- Retour au calme : on repose tout EXACTEMENT une fois, puis on ne
+		-- touche plus a rien. Reecrire les positions a chaque image pendant
+		-- qu'il ne se passe rien coute pour rien.
+		if widget.active then
+			widget.active = false
 			for _, entry in widget.frames do
 				entry.frame.Position = entry.base
-				entry.offsetX, entry.offsetY = 0, 0
 			end
 			for _, entry in widget.labels do
-				-- On ne repose QUE ce qu'on a soi-meme brouille. Ecraser un
-				-- libelle vivant avec une reference figee y afficherait un
-				-- message deja perime.
-				if entry.scrambled and entry.label.Text == entry.scrambled then
-					entry.label.Text = entry.text
-				end
-				entry.scrambled = nil
-				entry.restoreAt = 0
+				restore(entry)
 			end
 		end
 		return
 	end
 
-	widget.settled = false
+	widget.active = true
 
-	-- --- tremblement ------------------------------------------------------
-	if widget.clock >= widget.rerollAt then
-		local rate = settings.rerollBase + settings.rerollGain * intensity
-		widget.rerollAt = widget.clock + 1 / rate
-
-		local amplitude = settings.maxOffset * intensity
-		for _, entry in widget.frames do
-			entry.offsetX = (math.random() - 0.5) * 2 * amplitude
-			entry.offsetY = (math.random() - 0.5) * 2 * amplitude
-		end
-	end
-
+	-- TREMBLEMENT : un pixel, redecide a chaque image. Exactement ce que fait
+	-- le bloc de vitaux — pas une amplitude proportionnelle, pas un tirage
+	-- espace. L'appareil vibre, il ne se deplace pas.
 	for _, entry in widget.frames do
-		entry.frame.Position = UDim2.new(
-			entry.base.X.Scale,
-			entry.base.X.Offset + entry.offsetX,
-			entry.base.Y.Scale,
-			entry.base.Y.Offset + entry.offsetY
-		)
+		entry.frame.Position = entry.base + UDim2.fromOffset(math.random(-1, 1), math.random(-1, 1))
 	end
 
-	-- --- decrochage des libelles ------------------------------------------
-	for _, entry in widget.labels do
-		if entry.restoreAt > 0 and widget.clock >= entry.restoreAt then
-			-- COMPARAISON AVANT ECRITURE. Si le widget a reecrit son libelle
-			-- pendant le decrochage, sa version est plus recente que la
-			-- notre : on ne la touche pas.
-			if entry.scrambled and entry.label.Text == entry.scrambled then
-				entry.label.Text = entry.text
-			end
-			entry.scrambled = nil
-			entry.restoreAt = 0
-		end
+	-- DECROCHAGE : meme cadence que le bloc de vitaux, bornee de la meme
+	-- facon pour qu'une degradation naissante ne fige pas l'intervalle.
+	widget.glitchIn -= dt
+	if widget.glitchIn > 0 or #widget.labels == 0 then
+		return
+	end
+	widget.glitchIn = 1 / (Theme.monitor.glitchPerSecond * math.max(0.2, level))
+
+	local entry = widget.labels[math.random(1, #widget.labels)]
+
+	-- Un decrochage deja en cours sur ce libelle : on repose avant de
+	-- rebrouiller, sinon la reference deviendrait le texte deja abime.
+	if entry.scrambled then
+		restore(entry)
 	end
 
-	if widget.clock >= widget.glitchAt then
-		local rate = settings.glitchBase + settings.glitchGain * intensity
-		widget.glitchAt = widget.clock + 1 / rate
-
-		if #widget.labels > 0 then
-			local entry = widget.labels[math.random(#widget.labels)]
-
-			-- Un libelle vivant se RELIT : sa reference figee serait un
-			-- message perime. Un libelle fixe garde la sienne.
-			local source = if entry.live then entry.label.Text else entry.text
-
-			if #source > 0 then
-				local span = settings.glitchCharsMax - settings.glitchCharsMin
-				local count = math.floor(settings.glitchCharsMin + span * intensity + 0.5)
-
-				entry.text = source
-				entry.scrambled = scramble(source, count)
-				entry.label.Text = entry.scrambled :: string
-				entry.restoreAt = widget.clock + settings.glitchHold
-			end
-		end
+	-- Un libelle vivant se RELIT ; un libelle fixe garde sa reference.
+	local source = if entry.live then entry.label.Text else entry.text
+	if #source == 0 then
+		return
 	end
-end
 
-function Panic.clear(widget: Widget)
-	Panic.step(widget, 0, 0)
-	widget.settled = false
-	Panic.step(widget, 0, 0)
+	entry.text = source
+	if entry.live then
+		entry.color = entry.label.TextColor3
+	end
+
+	entry.scrambled = Components.scramble(source)
+	entry.label.Text = entry.scrambled :: string
+	entry.label.TextColor3 = Theme.color.danger
+	entry.restoreAt = widget.clock + HOLD
 end
 
 return Panic

@@ -314,13 +314,12 @@ local function updateStamina(player: Player, dt: number, now: number)
 	local speed = math.sqrt(velocity.X * velocity.X + velocity.Z * velocity.Z)
 
 	local wasExhausted = state.exhausted
-	local changed = Stamina.step(state, dt, speed, now)
 
-	-- Vitesse imposee par le serveur.
+	-- ORDRE : ON DECIDE D'ABORD, ON CONSOMME ENSUITE.
 	--
-	-- Trois etats, et un seul endroit qui les arbitre : a bout de souffle on
-	-- traine, en course on accelere, sinon on marche. Le client demande, il
-	-- ne decide pas — sinon n'importe qui court indefiniment.
+	-- L'arbitrage se faisait APRES le calcul d'endurance, qui deduisait
+	-- l'effort de la vitesse mesuree. Les deux pouvaient diverger, et la
+	-- jauge ne bougeait pas pendant la course.
 	local sprint = Config.Player.sprint
 	local crouch = Config.Player.crouch
 
@@ -332,6 +331,17 @@ local function updateStamina(player: Player, dt: number, now: number)
 		and sprintIntent[player] == true
 		and not state.exhausted
 		and state.value > 0
+
+	-- La course accordee est ce qui coute. La vitesse ne sert plus qu'a
+	-- verifier que le joueur avance vraiment : tenir la touche a l'arret ne
+	-- vide pas la jauge.
+	local changed = Stamina.step(state, dt, speed, now, wantsSprint)
+
+	-- Un joueur qui tombe a bout de souffle PENDANT ce pas perd sa course
+	-- immediatement, sans attendre le pas suivant.
+	if state.exhausted then
+		wantsSprint = false
+	end
 
 	local target = if crouching
 		then crouch.speed

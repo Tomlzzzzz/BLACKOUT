@@ -90,6 +90,7 @@ export type Widget = {
 
 	bpm: number,
 	heat: number,
+	decay: number,
 	shownBpm: number,
 	phase: number,
 	lastWrite: number,
@@ -211,20 +212,9 @@ local function extremes(t0: number, t1: number): (number, number)
 	return low, high
 end
 
-local function scramble(text: string): string
-	local glyphs = Theme.glitchGlyphs
-	local out = {}
-	for index = 1, #text do
-		local char = text:sub(index, index)
-		if char ~= " " and math.random() < 0.45 then
-			local pick = math.random(1, #glyphs)
-			table.insert(out, glyphs:sub(pick, pick))
-		else
-			table.insert(out, char)
-		end
-	end
-	return table.concat(out)
-end
+-- Le brouillage vit dans Components : le reste du HUD doit se degrader
+-- EXACTEMENT comme ce bloc, pas approximativement.
+local scramble = Components.scramble
 
 -- ------------------------------------------------------------ Montage ----
 
@@ -551,6 +541,7 @@ function PlayerStatusWidget.create(parent: Instance): Widget
 		startle = 0,
 		bpm = BPM_REST,
 		heat = 0,
+		decay = 0,
 		shownBpm = BPM_REST,
 		phase = 0,
 		lastWrite = 0,
@@ -637,6 +628,13 @@ function PlayerStatusWidget.getHeat(widget: Widget): number
 	return widget.heat
 end
 
+-- Degradation de l'appareil, 0 a 1. Meme valeur que celle qui brouille
+-- les libelles de ce bloc : la panique generale la lit pour se degrader
+-- au meme rythme, avec le meme grain.
+function PlayerStatusWidget.getDecay(widget: Widget): number
+	return widget.decay
+end
+
 function PlayerStatusWidget.step(widget: Widget, dt: number)
 	widget.clock += dt
 
@@ -670,6 +668,9 @@ function PlayerStatusWidget.step(widget: Widget, dt: number)
 	-- reste de l'interface ne recalcule pas son propre affolement, il lit
 	-- celui du coeur.
 	widget.heat = heat
+	-- La DEGRADATION aussi : c'est elle qui pilote le brouillage ici, et
+	-- donc celui du reste du HUD. Deux calculs separes deriveraient.
+	widget.decay = decay
 	local traceColor = Theme.color.danger:Lerp(Color3.fromRGB(255, 96, 96), heat * 0.6)
 	local beat = waveform(widget.phase)
 

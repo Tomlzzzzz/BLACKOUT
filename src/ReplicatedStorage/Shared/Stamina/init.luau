@@ -33,14 +33,43 @@ end
 -- Retourne true si la valeur a change de facon perceptible, pour que le
 -- service n'inonde pas le reseau d'une mise a jour par tick alors que rien
 -- ne bouge.
-function Stamina.step(state: StaminaState, dt: number, speed: number, now: number): boolean
+-- `sprinting` est l'arbitrage SERVEUR de la course. Quand il est fourni,
+-- c'est lui qui decide de l'effort et la vitesse ne sert plus qu'a verifier
+-- que le joueur avance reellement.
+--
+-- POURQUOI CE PARAMETRE EXISTE
+--
+-- L'effort se deduisait de la seule VITESSE MESUREE, comparee a un seuil
+-- place entre la marche et la course. Deux decisions differentes — courir
+-- (intention, arbitree serveur) et consommer (vitesse observee) — pouvaient
+-- donc etre en desaccord : personnage qui n'atteint pas sa vitesse cible,
+-- velocite repliquee en retard sur un personnage possede par le client,
+-- montee, obstacle. Symptome constate en jeu : la jauge ne bougeait pas
+-- pendant la course et chutait au relachement.
+--
+-- Une seule source decide maintenant : si le serveur a accorde la course et
+-- que le joueur avance, ca coute. L'ancien comportement reste disponible en
+-- omettant l'argument — c'est ce que font les tests du modele pur.
+function Stamina.step(
+	state: StaminaState,
+	dt: number,
+	speed: number,
+	now: number,
+	sprinting: boolean?
+): boolean
 	if not isUsable(dt) or dt <= 0 then
 		return false
 	end
 
 	local settings = cfg()
 	local before = state.value
-	local effort = isUsable(speed) and speed >= settings.moveThreshold
+
+	local effort
+	if sprinting ~= nil then
+		effort = sprinting and isUsable(speed) and speed > settings.movingAt
+	else
+		effort = isUsable(speed) and speed >= settings.moveThreshold
+	end
 
 	if effort then
 		state.lastEffortAt = now

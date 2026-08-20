@@ -24,7 +24,7 @@ export type Widget = {
 	hint: TextLabel,
 
 	progressTrack: Frame,
-	progressFill: Frame,
+	segments: { Frame },
 
 	alert: TextLabel,
 	alertUntil: number,
@@ -33,6 +33,7 @@ export type Widget = {
 	-- la barre doit se remplir exactement au rythme ou le serveur valide,
 	-- sinon elle ment sur le moment ou l'action aboutit.
 	holding: boolean,
+	shown: number,
 	holdElapsed: number,
 	holdDuration: number,
 	flash: number,
@@ -41,6 +42,9 @@ export type Widget = {
 	alpha: number,
 	clock: number,
 }
+
+local HOLD_SEGMENTS = 32
+local HOLD_RADIUS = 17
 
 function InteractionWidget.create(parent: Instance): Widget
 	local prompt = Components.new("Frame", {
@@ -100,29 +104,52 @@ function InteractionWidget.create(parent: Instance): Widget
 		zIndex = 7,
 	}, prompt)
 
-	-- BARRE DE MAINTIEN.
+	-- ANNEAU DE MAINTIEN, autour du cadre de touche.
 	--
-	-- « [MAINTENIR] FOUILLER » disait quoi faire mais rien ne se passait
+	-- « [MAINTENIR] FOUILLER » disait quoi faire, mais rien ne se passait
 	-- pendant qu'on le faisait : aucun moyen de savoir si la touche etait
-	-- prise en compte, ni combien de temps il restait. Le joueur relachait
-	-- au bout d'une demi-seconde en croyant que ca ne marchait pas.
+	-- prise en compte ni combien de temps il restait. On relachait au bout
+	-- d'une demi-seconde en croyant a une panne.
+	--
+	-- Un filet sous le panneau disait bien la progression, mais loin de
+	-- l'endroit ou l'oeil est pose : la touche. On la CERCLE donc.
+	--
+	-- Roblox ne dessine pas d'arc. L'anneau est fait de segments poses en
+	-- cercle et reveles un par un — meme procede que le trace du bloc de
+	-- vitaux. Trente-deux suffisent a lire un cercle, et ca evite de
+	-- televerser puis faire moderer une image.
 	local progressTrack = Components.new("Frame", {
-		BackgroundColor3 = Theme.color.raised,
-		BackgroundTransparency = 0.4,
-		BorderSizePixel = 0,
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 0, 1, 0),
-		Size = UDim2.new(1, 0, 0, 3),
+		Name = "HoldRing",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0, 22, 0.5, 0),
+		Size = UDim2.fromOffset(40, 40),
 		Visible = false,
 		ZIndex = 8,
 	}, prompt) :: Frame
 
-	local progressFill = Components.new("Frame", {
-		BackgroundColor3 = Theme.color.amber,
-		BorderSizePixel = 0,
-		Size = UDim2.new(0, 0, 1, 0),
-		ZIndex = 9,
-	}, progressTrack) :: Frame
+	local segments: { Frame } = {}
+	for index = 1, HOLD_SEGMENTS do
+		local angle = (index - 1) / HOLD_SEGMENTS * math.pi * 2
+		table.insert(
+			segments,
+			Components.new("Frame", {
+				BackgroundColor3 = Theme.color.amber,
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(
+					0.5,
+					math.sin(angle) * HOLD_RADIUS,
+					0.5,
+					-math.cos(angle) * HOLD_RADIUS
+				),
+				Size = UDim2.fromOffset(4, 3),
+				Rotation = math.deg(angle),
+				ZIndex = 8,
+			}, progressTrack) :: Frame
+		)
+	end
 
 	local alert = Components.label({
 		text = "",
@@ -143,10 +170,11 @@ function InteractionWidget.create(parent: Instance): Widget
 		action = action,
 		hint = hint,
 		progressTrack = progressTrack,
-		progressFill = progressFill,
+		segments = segments,
 		alert = alert,
 		alertUntil = 0,
 		holding = false,
+		shown = 0,
 		holdElapsed = 0,
 		holdDuration = 0,
 		flash = 0,
@@ -178,8 +206,7 @@ function InteractionWidget.beginHold(widget: Widget, duration: number)
 	-- ce qui accuse la pression au lieu de ne rien montrer.
 	widget.holdDuration = math.max(0.12, duration)
 	widget.progressTrack.Visible = true
-	widget.progressFill.Size = UDim2.new(0, 0, 1, 0)
-	widget.progressFill.BackgroundColor3 = Theme.color.amber
+	widget.shown = 0
 end
 
 -- Relachee avant la fin : la barre se vide vite, sans flash.
@@ -193,8 +220,7 @@ end
 function InteractionWidget.completeHold(widget: Widget)
 	widget.holding = false
 	widget.holdElapsed = widget.holdDuration
-	widget.progressFill.Size = UDim2.new(1, 0, 1, 0)
-	widget.progressFill.BackgroundColor3 = Theme.color.extraction
+	widget.shown = 1
 	widget.flash = 1
 end
 
@@ -210,7 +236,7 @@ function InteractionWidget.step(widget: Widget, dt: number)
 	if widget.holding then
 		widget.holdElapsed = math.min(widget.holdDuration, widget.holdElapsed + dt)
 		local fraction = widget.holdElapsed / widget.holdDuration
-		widget.progressFill.Size = UDim2.new(fraction, 0, 1, 0)
+		widget.shown = fraction
 		-- Le cadre de touche s'enfonce : la barre dit le temps, le cadre dit
 		-- que la touche est tenue.
 		widget.keyBox.BackgroundTransparency = 0.05 - 0.05 * fraction
@@ -219,18 +245,27 @@ function InteractionWidget.step(widget: Widget, dt: number)
 		-- Retrait. Rapide apres un abandon, plus lent apres une reussite pour
 		-- laisser voir le vert.
 		local speed = if widget.flash > 0 then 2.5 else 7
-		local remaining = widget.progressFill.Size.X.Scale
-		local next = math.max(0, remaining - dt * speed)
-		widget.progressFill.Size = UDim2.new(next, 0, 1, 0)
+		widget.shown = math.max(0, widget.shown - dt * speed)
 		widget.keyBox.BackgroundTransparency = 0.05
 		widget.keyBox.Size = UDim2.fromOffset(20, 20)
-		if next <= 0 then
+		if widget.shown <= 0 then
 			widget.progressTrack.Visible = false
 		end
 	end
 
 	if widget.flash > 0 then
 		widget.flash = math.max(0, widget.flash - dt * 2.2)
+	end
+
+	-- Peinture de l'anneau. Le dernier segment se revele PROGRESSIVEMENT :
+	-- sans ca l'anneau avance par crans visibles au lieu de se fermer.
+	if widget.progressTrack.Visible then
+		local filled = widget.shown * #widget.segments
+		local color = if widget.flash > 0 then Theme.color.extraction else Theme.color.amber
+		for index, segment in widget.segments do
+			segment.BackgroundTransparency = 1 - math.clamp(filled - (index - 1), 0, 1)
+			segment.BackgroundColor3 = color
+		end
 	end
 
 	widget.clock += dt

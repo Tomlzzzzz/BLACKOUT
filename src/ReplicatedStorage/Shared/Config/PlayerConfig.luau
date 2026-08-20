@@ -28,6 +28,14 @@ PlayerConfig.stamina = {
 	-- l'impression d'une endurance qui fond.
 	moveThreshold = 14,
 
+	-- Vitesse au-dela de laquelle on considere que le joueur SE DEPLACE.
+	--
+	-- Rien a voir avec `moveThreshold` : ce seuil-la separait l'effort de
+	-- la marche quand la consommation se decidait sur la vitesse mesuree.
+	-- Celui-ci ne sert plus qu'a distinguer « je cours » de « je tiens la
+	-- touche de course sans avancer ». Volontairement tres bas.
+	movingAt = 1,
+
 	-- Vitesse imposee a bout de souffle.
 	exhaustedSpeed = 6,
 
