@@ -63,6 +63,20 @@ local sprintIntent: { [Player]: boolean } = {}
 -- detection, et un client qui pourrait le poser lui-meme se declarerait
 -- accroupi en pleine course.
 local crouchIntent: { [Player]: boolean } = {}
+
+-- VERROU D'EPUISEMENT : il faut RELACHER la touche pour repartir.
+--
+-- Sans lui, garder Maj enfonce produisait une scie. La course s'arrete a
+-- bout de souffle, la jauge remonte, l'hysteresis la rend a un quart — et la
+-- touche etant toujours tenue, la course repartait aussitot pour retomber
+-- deux secondes plus tard. Le joueur restait coince entre 5 et 25 sur une
+-- barre de 100 : a l'ecran, une jauge collee en bas qui ne bouge plus.
+-- « Quand une touche est enfoncee ca la fige. »
+--
+-- Le verrou se pose a l'epuisement et ne se leve qu'au relachement de la
+-- touche. C'est aussi la bonne regle de jeu : une fois hors d'haleine, on
+-- reprend son souffle, on ne repart pas par a-coups.
+local sprintLocked: { [Player]: boolean } = {}
 local connections: { RBXScriptConnection } = {}
 
 -- Une connexion Died par joueur, remplacee a chaque reapparition.
@@ -329,6 +343,7 @@ local function updateStamina(player: Player, dt: number, now: number)
 	local crouching = crouchIntent[player] == true
 	local wantsSprint = not crouching
 		and sprintIntent[player] == true
+		and not sprintLocked[player]
 		and not state.exhausted
 		and state.value > 0
 
@@ -341,6 +356,8 @@ local function updateStamina(player: Player, dt: number, now: number)
 	-- immediatement, sans attendre le pas suivant.
 	if state.exhausted then
 		wantsSprint = false
+		-- Et il devra relacher la touche avant de repartir.
+		sprintLocked[player] = true
 	end
 
 	local target = if crouching
@@ -526,6 +543,7 @@ local function onDeath(player: Player)
 	-- traversent la mort et reprennent au redeploiement.
 	sprintIntent[player] = nil
 	crouchIntent[player] = nil
+	sprintLocked[player] = nil
 
 	-- Emis EN DERNIER : les abonnes lisent des chiffres definitifs.
 	-- Notamment le rapport de fin, qui a besoin du detail des piles perdues
@@ -591,6 +609,7 @@ local function onPlayerAdded(player: Player)
 	-- appuyer puis relacher.
 	sprintIntent[player] = nil
 	crouchIntent[player] = nil
+	sprintLocked[player] = nil
 	player:SetAttribute("Sprinting", false)
 	player:SetAttribute("Crouched", false)
 
@@ -708,6 +727,7 @@ local function onPlayerRemoving(player: Player)
 	staminas[player] = nil
 	sprintIntent[player] = nil
 	crouchIntent[player] = nil
+	sprintLocked[player] = nil
 	vitals[player] = nil
 	damageTaken[player] = nil
 
@@ -763,9 +783,50 @@ local function installDebug()
 
 		-- Filet de secours si une intention reste bloquee : on relache tout
 		-- sans avoir a mourir ni a se reconnecter.
+		-- RELEVE CONTINU, cinq secondes.
+		--
+		-- Le seul moyen de voir ce que fait l'endurance PENDANT qu'une touche
+		-- est tenue : impossible d'invoquer une commande et de maintenir Maj en
+		-- meme temps. On lance le releve, on va tenir la touche, on lit ensuite.
+		--
+		-- Il imprime la vitesse mesuree, l'intention, la course accordee, la
+		-- jauge et l'epuisement. Si la jauge ne bouge pas alors que la course
+		-- est accordee, le defaut est serveur ; si elle bouge ici mais pas a
+		-- l'ecran, il est dans l'affichage.
+		if action == "watch" then
+			task.spawn(function()
+				log:info("releve d'endurance : 5 s, tiens la touche maintenant")
+				for index = 1, 25 do
+					task.wait(0.2)
+					local state = staminas[player]
+					local character = player.Character
+					local root = character and character:FindFirstChild("HumanoidRootPart")
+					local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+					local velocity = if root and root:IsA("BasePart")
+						then root.AssemblyLinearVelocity
+						else Vector3.zero
+					local speed = math.sqrt(velocity.X * velocity.X + velocity.Z * velocity.Z)
+
+					log:info(string.format(
+						"%2d  jauge %5.1f  vitesse %4.1f  demande %s  accordee %s  epuise %s  verrou %s",
+						index,
+						if state then state.value else -1,
+						speed,
+						tostring(sprintIntent[player] == true),
+						tostring(player:GetAttribute("Sprinting") == true),
+						tostring(state and state.exhausted),
+						tostring(sprintLocked[player] == true)
+					))
+				end
+				log:info("releve termine")
+			end)
+			return "releve lance : tiens Maj pendant cinq secondes, puis lis la console"
+		end
+
 		if action == "release" then
 			sprintIntent[player] = nil
 			crouchIntent[player] = nil
+			sprintLocked[player] = nil
 			player:SetAttribute("Sprinting", false)
 			player:SetAttribute("Crouched", false)
 			return "course et accroupi relaches"
@@ -800,6 +861,7 @@ local function installDebug()
 			`jauge : {if staminas[player] then string.format("%.1f/%d", staminas[player].value, Config.Player.stamina.max) else "?"}`,
 			`a bout de souffle : {tostring(staminas[player] and staminas[player].exhausted)}`,
 			`intention de course : {tostring(sprintIntent[player] == true)}`,
+			`verrou d'epuisement : {tostring(sprintLocked[player] == true)}`,
 			`course accordee : {tostring(player:GetAttribute("Sprinting") == true)}`,
 			`intention d'accroupi : {tostring(crouchIntent[player] == true)}`,
 			`vitesse appliquee : {(function()
@@ -808,11 +870,11 @@ local function installDebug()
 				return if humanoid then humanoid.WalkSpeed else -1
 			end)()}`,
 			"",
-			"actions : status | battery <n> | armor <n> | light | release",
+			"actions : status | watch | battery <n> | armor <n> | light | release",
 		}, "\n")
 	end
 
-	log:info('debug : ServerStorage.DebugVitals:Invoke("status"|"battery <n>"|"armor <n>"|"light"|"release")')
+	log:info('debug : ServerStorage.DebugVitals:Invoke("status"|"watch"|"battery <n>"|"armor <n>"|"light"|"release")')
 end
 
 function PlayerService.Start()
@@ -876,6 +938,12 @@ function PlayerService.Start()
 			sprintRemote.OnServerEvent:Connect(function(player, wants)
 				local before = sprintIntent[player] == true
 				sprintIntent[player] = wants == true
+
+				-- Le relachement leve le verrou d'epuisement : c'est le SEUL
+				-- moyen de repartir en course apres etre tombe hors d'haleine.
+				if wants ~= true then
+					sprintLocked[player] = nil
+				end
 
 				-- REACTION IMMEDIATE. Attendre le tick suivant laissait la jauge
 				-- immobile jusqu'a un dixieme de seconde apres l'appui, en plus du
