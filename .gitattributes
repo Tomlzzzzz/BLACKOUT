@@ -1,0 +1,29 @@
+# Fins de ligne normalisees en LF DANS LE DEPOT.
+#
+# Sans ce fichier, Windows convertit tout en CRLF a la sortie et git enregistre
+# le fichier entier comme modifie des qu'une autre machine y touche. Sur un
+# projet a deux, ca produit des conflits sur des lignes que personne n'a
+# ecrites — exactement ce qu'on cherche a eviter en passant sur git.
+* text=auto eol=lf
+
+# Sources Luau et configuration : du texte, toujours.
+*.luau text eol=lf
+*.lua text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+
+# Binaires : jamais de conversion, jamais de fusion automatique.
+*.png binary
+*.jpg binary
+*.ogg binary
+*.mp3 binary
+*.fbx binary
+
+# Fichiers de place Roblox. Ils sont deja ignores, mais si l'un finit par
+# etre versionne un jour il ne doit surtout pas etre fusionne ligne a ligne :
+# le resultat serait une place corrompue.
+*.rbxl binary merge=binary
+*.rbxlx binary merge=binary
+*.rbxm binary merge=binary
+*.rbxmx binary merge=binary

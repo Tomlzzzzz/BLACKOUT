@@ -1,0 +1,60 @@
+{
+  "name": "BLACKOUT",
+  "tree": {
+    "$className": "DataModel",
+
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "Server": { "$path": "src/ServerScriptService/Server" },
+      "Controllers": { "$path": "src/ServerScriptService/Controllers" }
+    },
+
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "$ignoreUnknownInstances": true,
+      "Tests": { "$path": "tests" }
+    },
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Shared": { "$path": "src/ReplicatedStorage/Shared" },
+      "Remotes": {
+        "$path": "src/ReplicatedStorage/Remotes",
+        "$ignoreUnknownInstances": true
+      }
+    },
+
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "$properties": {
+        "CameraMode": "LockFirstPerson",
+        "EnableMouseLockOption": false
+      },
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "Client": { "$path": "src/StarterPlayer/StarterPlayerScripts/Client" }
+      }
+    },
+
+    "Workspace": {
+      "$className": "Workspace",
+      "$ignoreUnknownInstances": true,
+      "Map": {
+        "$path": "src/Workspace/Map",
+        "$ignoreUnknownInstances": true
+      },
+      "ExtractionZones": {
+        "$path": "src/Workspace/ExtractionZones",
+        "$ignoreUnknownInstances": true
+      },
+      "LootSpawns": {
+        "$path": "src/Workspace/LootSpawns",
+        "$ignoreUnknownInstances": true
+      },
+      "EnemySpawns": {
+        "$path": "src/Workspace/EnemySpawns",
+        "$ignoreUnknownInstances": true
+      }
+    }
+  }
+}

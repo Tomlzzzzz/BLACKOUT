@@ -1,0 +1,24 @@
+# Sorties Rojo et fichiers de place.
+#
+# La place Roblox n'est PAS la source de verite : le disque l'est, et Rojo
+# synchronise vers Studio. Versionner un .rbxl reintroduirait une seconde
+# source qui divergerait au premier playtest.
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+*.rbxm
+*.rbxmx
+
+# Images deposees a la racine par glisser-deposer.
+#
+# Doublons hash-nommes des fichiers de assets/icons/ et docs/. Ils n'ont
+# aucun nom parlant et se recreent a chaque import : les versionner
+# alourdirait le depot sans que personne ne sache a quoi ils correspondent.
+/file_00000000*.png
+/deb82097*.png
+
+# Systeme
+.DS_Store
+Thumbs.db
+desktop.ini
