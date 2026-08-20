@@ -124,16 +124,16 @@ function InteractionWidget.create(parent: Instance): Widget
 	}, prompt) :: Frame
 	Components.new("UICorner", { CornerRadius = UDim.new(1, 0) }, glow)
 
-	-- Reflet en haut de la touche : une bande claire en degrade. Sans elle le
-	-- cadre reste plat quelle que soit son epaisseur.
-	local gloss = Components.new("Frame", {
-		BackgroundColor3 = Theme.color.info,
-		BackgroundTransparency = 0.88,
-		BorderSizePixel = 0,
-		Size = UDim2.new(1, 0, 0.45, 0),
-		ZIndex = 8,
-	}, keyBox) :: Frame
-	Components.new("UICorner", { CornerRadius = UDim.new(0, 4) }, gloss)
+	-- PAS DE REFLET SUR LA TOUCHE.
+	--
+	-- Il y en avait un : une bande claire sur la moitie haute. Elle passait
+	-- PAR-DESSUS la lettre et la coupait en deux teintes — un E clair en haut,
+	-- sombre en bas. Un reflet qui traverse le glyphe qu'il est cense mettre
+	-- en valeur n'est pas un reflet, c'est une salissure.
+	--
+	-- L'epaisseur suffit a dire « bouton » : l'ombre portee dessous, et sa
+	-- disparition quand la touche s'enfonce. Le relief se lit au MOUVEMENT,
+	-- pas au degrade.
 
 	local keyLabel = Components.label({
 		text = "E",

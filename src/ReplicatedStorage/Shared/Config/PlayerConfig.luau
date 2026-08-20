@@ -42,7 +42,16 @@ PlayerConfig.stamina = {
 	-- Seuil sous lequel on est considere epuise.
 	exhaustedBelow = 5,
 
-	tickRate = 0.25,
+	-- Cadence de la boucle d'endurance.
+	--
+	-- Elle valait 0.25 : entre l'appui sur Maj et le tick suivant, il pouvait
+	-- s'ecouler un quart de seconde pendant lequel RIEN ne bougeait a l'ecran.
+	-- Plus le trajet reseau, ca faisait pres d'un tiers de seconde de jauge
+	-- immobile apres l'appui — « ca ne descend que apres ».
+	--
+	-- Dix fois par seconde. Le calcul est trois multiplications : ce n'est pas
+	-- la ou le serveur depense son temps.
+	tickRate = 0.1,
 }
 
 -- ------------------------------------------------------------ Sprint ----

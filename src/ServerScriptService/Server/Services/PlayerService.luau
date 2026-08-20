@@ -874,7 +874,21 @@ function PlayerService.Start()
 		table.insert(
 			connections,
 			sprintRemote.OnServerEvent:Connect(function(player, wants)
+				local before = sprintIntent[player] == true
 				sprintIntent[player] = wants == true
+
+				-- REACTION IMMEDIATE. Attendre le tick suivant laissait la jauge
+				-- immobile jusqu'a un dixieme de seconde apres l'appui, en plus du
+				-- trajet reseau. Le joueur appuyait, il ne se passait rien, et il
+				-- concluait que la touche ne marchait pas.
+				--
+				-- On ne passe ici que sur un VRAI changement : un client qui
+				-- reenverrait la meme valeur en boucle ne peut pas forcer le
+				-- serveur a recalculer a volonte.
+				if before ~= (wants == true) then
+					local now = os.clock()
+					updateStamina(player, Config.Player.stamina.tickRate, now)
+				end
 			end)
 		)
 	else
