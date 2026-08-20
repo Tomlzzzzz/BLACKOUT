@@ -355,6 +355,12 @@ local function updateStamina(player: Player, dt: number, now: number)
 		player:SetAttribute("Crouched", crouching)
 	end
 
+	-- La course ACCORDEE, pas la touche enfoncee. Le rythme cardiaque du
+	-- HUD la lit : on ne s'essouffle pas a demander une course refusee.
+	if player:GetAttribute("Sprinting") ~= wantsSprint then
+		player:SetAttribute("Sprinting", wantsSprint)
+	end
+
 	if humanoid.WalkSpeed ~= target then
 		humanoid.WalkSpeed = target
 	end

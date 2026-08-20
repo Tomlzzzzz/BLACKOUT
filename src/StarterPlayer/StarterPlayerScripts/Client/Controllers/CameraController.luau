@@ -157,13 +157,9 @@ local function step(dt: number)
 	-- CameraOffset plutot qu'un redimensionnement du personnage : c'est le
 	-- seul moyen d'abaisser le point de vue sans toucher aux collisions ni
 	-- au rig, et il s'interpole proprement.
-	if humanoid then
-		local crouching = player:GetAttribute("Crouched") == true
-		local wanted = if crouching then -Config.Player.crouch.cameraDrop else 0
-		local current = humanoid.CameraOffset.Y
-		if math.abs(current - wanted) > 0.01 then
-			humanoid.CameraOffset = Vector3.new(0, current + (wanted - current) * math.min(1, dt * 7), 0)
-		end
+	local crouchDrop = 0
+	if player:GetAttribute("Crouched") == true then
+		crouchDrop = -Config.Player.crouch.cameraDrop
 	end
 
 	-- --- champ de vision ------------------------------------------------
@@ -180,14 +176,12 @@ local function step(dt: number)
 
 	-- --- balancement de marche -------------------------------------------
 	--
-	-- Deux composantes, et la premiere est celle qui manquait : une tete qui
-	-- marche MONTE ET DESCEND. L'ancienne version ne produisait que du
-	-- roulis, ce qui faisait pencher la tete de gauche a droite comme un
-	-- metronome — personne ne marche comme ca.
+	-- Il produit un DECALAGE DE POSITION, jamais une rotation : faire pivoter
+	-- la camera en premiere personne deplace le viseur a chaque pas.
 	--
-	-- La phase avance a la cadence des pas plutot qu'a l'horloge : elle
-	-- s'arrete net quand le joueur s'arrete, au lieu de continuer a tourner
-	-- dans le vide et de reprendre a un point arbitraire.
+	-- La phase avance a la cadence des PAS et non a l'horloge : elle s'arrete
+	-- net quand le joueur s'arrete, au lieu de continuer a tourner dans le
+	-- vide et de faire repartir la tete vers le bas au premier pas suivant.
 	local bobRise, bobSway = 0, 0
 	if root and root:IsA("BasePart") and humanoid and humanoid.FloorMaterial ~= Enum.Material.Air then
 		local speed = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z).Magnitude
@@ -197,17 +191,14 @@ local function step(dt: number)
 			local running = sprinting and not exhausted
 			local gain = ratio * (if running then settings.bob.sprintAmplitude else 1)
 
-			-- CADENCE EN PAS PAR SECONDE, interpolee avec la vitesse reelle.
-			-- La phase avance donc d'un tour complet par PAS, et non d'un
-			-- multiple arbitraire de l'horloge.
 			local cadence = if running
 				then settings.bob.sprintCadence
 				else settings.bob.walkCadence * (0.65 + ratio * 0.35)
 			bobPhase += dt * cadence * math.pi * 2
 
-			-- Un mouvement vertical par pas.
+			-- Une montee-descente par pas.
 			bobRise = math.sin(bobPhase) * settings.bob.rise * gain
-			-- Un roulis par FOULEE : deux pas. D'ou la demi-frequence.
+			-- Un balancement lateral par FOULEE : deux pas, donc demi-frequence.
 			bobSway = math.sin(bobPhase * 0.5) * settings.bob.sway * gain
 		end
 	end
@@ -235,11 +226,24 @@ local function step(dt: number)
 	end
 	local kickPitch = kick
 
+	-- DECALAGE DU POINT DE VUE : accroupi et balancement, ensemble.
+	--
+	-- Un seul ecrivain pour `CameraOffset`. Deux blocs qui l'ecrivent chacun
+	-- de leur cote se seraient ecrases mutuellement une image sur deux.
+	if humanoid then
+		local wanted = Vector3.new(bobSway, crouchDrop + bobRise, 0)
+		local current = humanoid.CameraOffset
+		humanoid.CameraOffset = current:Lerp(wanted, math.min(1, dt * settings.bob.follow))
+	end
+
+	-- ROTATION : uniquement ce qui doit DERANGER LA VISEE — la respiration, le
+	-- tremblement de peur, le coup encaisse. Le balancement de marche n'y est
+	-- pas, et c'est tout l'objet de la correction.
 	camera.CFrame = camera.CFrame
 		* CFrame.Angles(
-			math.rad(breathPitch + shakePitch - kickPitch + bobRise),
+			math.rad(breathPitch + shakePitch - kickPitch),
 			math.rad(shakeYaw),
-			math.rad(breathRoll + bobSway)
+			math.rad(breathRoll)
 		)
 end
 

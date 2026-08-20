@@ -26,6 +26,7 @@ local Panic = {}
 type FrameEntry = {
 	frame: GuiObject,
 	base: UDim2,
+	baseTransparency: number,
 }
 
 -- Un libelle qui peut decrocher.
@@ -47,6 +48,8 @@ type LabelEntry = {
 	color: Color3,
 	scrambled: string?,
 	restoreAt: number,
+	-- Double d'impression, cree a la premiere degradation seulement.
+	ghost: TextLabel?,
 }
 
 export type Widget = {
@@ -55,6 +58,10 @@ export type Widget = {
 	clock: number,
 	glitchIn: number,
 	active: boolean,
+	-- Coupure d'alimentation en cours : dure quelques centiemes.
+	flickerUntil: number,
+	flickerIn: number,
+	flickered: FrameEntry?,
 }
 
 -- Duree d'un decrochage. Identique a celle du bloc de vitaux.
@@ -67,6 +74,9 @@ function Panic.create(): Widget
 		clock = 0,
 		glitchIn = 0,
 		active = false,
+		flickerUntil = 0,
+		flickerIn = 0,
+		flickered = nil,
 	}
 end
 
@@ -77,7 +87,11 @@ function Panic.watchFrame(widget: Widget, frame: GuiObject?)
 	if not frame then
 		return
 	end
-	table.insert(widget.frames, { frame = frame, base = frame.Position })
+	table.insert(widget.frames, {
+		frame = frame,
+		base = frame.Position,
+		baseTransparency = frame.BackgroundTransparency,
+	})
 end
 
 function Panic.watchLabel(widget: Widget, label: TextLabel?)
@@ -124,6 +138,42 @@ local function restore(entry: LabelEntry)
 	end
 	entry.scrambled = nil
 	entry.restoreAt = 0
+
+	local ghost = entry.ghost
+	if ghost then
+		ghost.Visible = false
+	end
+end
+
+-- DOUBLE D'IMPRESSION.
+--
+-- Un exemplaire du libelle, decale de deux pixels, en rouge, DERRIERE le
+-- vrai. Les canaux d'une mauvaise impression ne se superposent pas : ce
+-- dedoublement transforme un texte simplement brouille en texte mal
+-- transmis, ce qui n'est pas la meme histoire.
+--
+-- Cree a la PREMIERE degradation seulement, puis reutilise : la plupart des
+-- parties n'en verront jamais un seul.
+local function ghostFor(entry: LabelEntry): TextLabel?
+	if entry.ghost then
+		return entry.ghost
+	end
+
+	local parent = entry.label.Parent
+	if not parent then
+		return nil
+	end
+
+	local clone = entry.label:Clone()
+	clone.Name = entry.label.Name .. "_Ghost"
+	clone.ZIndex = math.max(1, entry.label.ZIndex - 1)
+	clone.TextColor3 = Theme.color.danger
+	clone.TextTransparency = 0.55
+	clone.Visible = false
+	clone.Parent = parent
+
+	entry.ghost = clone
+	return clone
 end
 
 -- `decay` est la degradation lue sur le bloc de vitaux : 0 quand tout va
@@ -147,7 +197,9 @@ function Panic.step(widget: Widget, dt: number, decay: number)
 			widget.active = false
 			for _, entry in widget.frames do
 				entry.frame.Position = entry.base
+				entry.frame.BackgroundTransparency = entry.baseTransparency
 			end
+			widget.flickered = nil
 			for _, entry in widget.labels do
 				restore(entry)
 			end
@@ -162,6 +214,27 @@ function Panic.step(widget: Widget, dt: number, decay: number)
 	-- espace. L'appareil vibre, il ne se deplace pas.
 	for _, entry in widget.frames do
 		entry.frame.Position = entry.base + UDim2.fromOffset(math.random(-1, 1), math.random(-1, 1))
+	end
+
+	-- COUPURE D'ALIMENTATION.
+	--
+	-- Un panneau au hasard s'efface quelques centiemes de seconde. C'est le
+	-- meme evenement que le clignotement du bloc de vitaux sur batterie
+	-- faible, applique a l'equipement entier : l'appareil ne se contente pas
+	-- de trembler, il PERD LE CONTACT par moments.
+	local flickered = widget.flickered
+	if flickered and widget.clock >= widget.flickerUntil then
+		flickered.frame.BackgroundTransparency = flickered.baseTransparency
+		widget.flickered = nil
+	end
+
+	widget.flickerIn -= dt
+	if widget.flickerIn <= 0 and #widget.frames > 0 and not widget.flickered then
+		widget.flickerIn = (1.4 + math.random() * 2.6) / math.max(0.25, level)
+		local entry = widget.frames[math.random(1, #widget.frames)]
+		entry.frame.BackgroundTransparency = 1
+		widget.flickerUntil = widget.clock + 0.05 + math.random() * 0.04
+		widget.flickered = entry
 	end
 
 	-- DECROCHAGE : meme cadence que le bloc de vitaux, bornee de la meme
@@ -195,6 +268,16 @@ function Panic.step(widget: Widget, dt: number, decay: number)
 	entry.label.Text = entry.scrambled :: string
 	entry.label.TextColor3 = Theme.color.danger
 	entry.restoreAt = widget.clock + HOLD
+
+	-- Le double porte le texte PROPRE : c'est l'ecart entre les deux qui
+	-- se lit comme une mauvaise transmission. Deux textes brouilles
+	-- differemment ne donneraient qu'une bouillie.
+	local ghost = ghostFor(entry)
+	if ghost then
+		ghost.Text = source
+		ghost.Position = entry.label.Position + UDim2.fromOffset(2, 1)
+		ghost.Visible = true
+	end
 end
 
 return Panic

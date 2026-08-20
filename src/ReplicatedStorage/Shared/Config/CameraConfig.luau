@@ -66,39 +66,47 @@ CameraConfig.damageKick = {
 
 -- Balancement de marche.
 --
--- LE MOUVEMENT SUIT LES PAS. C'est la seule regle qui compte ici.
+-- IL TRANSLATE LE POINT DE VUE, IL NE FAIT PAS TOURNER LA VISEE.
 --
--- Deux versions ont echoue avant celle-ci. La premiere ne produisait QUE du
--- roulis : marcher faisait pencher la tete de gauche a droite comme un
--- metronome, un mouvement qu'aucun corps ne fait en avancant. La seconde a
--- ajoute le tangage mais l'a cadence a DEUX FOIS la phase, soit pres de
--- quatre oscillations verticales par seconde — injouable a l'ecran, et sans
--- rapport avec la marche de qui que ce soit.
+-- C'est la correction qui compte, et les deux versions precedentes s'y sont
+-- cassees. Toutes deux appliquaient le balancement en ROTATION de la camera :
+-- la premiere en roulis seul (tete qui penche comme un metronome), la seconde
+-- en tangage a bonne cadence. Mais faire pivoter la camera, en premiere
+-- personne, DEPLACE LE VISEUR — a chaque pas la ligne de mire quitte la
+-- cible. C'est desagreable a regarder et proprement injouable a viser.
 --
--- La cadence s'exprime donc en PAS PAR SECONDE, et l'anatomie decoule :
+-- Une tete qui marche monte, descend et se balance lateralement. Le regard,
+-- lui, reste pointe. On passe donc par un DECALAGE DE POSITION
+-- (`Humanoid.CameraOffset`), qui bouge le point de vue sans toucher a
+-- l'orientation.
 --
---   `rise`  un mouvement vertical PAR PAS
---   `sway`  un roulis par FOULEE, soit un pas sur deux
+-- Les amplitudes sont en STUDS, plus en degres. Elles paraissent minuscules
+-- et c'est normal : onze centimetres de montee suffisent a lire une marche
+-- quand le viseur, lui, ne bouge plus du tout.
 --
--- Un humain marche a peu pres a 1.75 pas/seconde et court a 2.5. Ce sont ces
--- valeurs-la, pas un multiple arbitraire de l'horloge — et c'est aussi la
--- phase sur laquelle brancher les futurs bruits de pas.
+--   `rise`  montee-descente, un cycle PAR PAS
+--   `sway`  balancement lateral, un cycle par FOULEE (deux pas)
 CameraConfig.bob = {
-	rise = 0.9,
-	sway = 0.35,
+	rise = 0.11,
+	sway = 0.07,
 
-	-- Cadence, en pas par seconde.
+	-- Cadence, en pas par seconde. Un humain marche a peu pres a 1.75 et
+	-- court a 2.5. C'est aussi la phase sur laquelle brancher les futurs
+	-- bruits de pas.
 	walkCadence = 1.75,
 	sprintCadence = 2.5,
 
 	-- Vitesse de deplacement au-dela de laquelle le balancement est plein.
-	-- Calee sur la marche : on veut le balancement complet en marchant, pas
-	-- seulement en courant.
+	-- Calee sur la marche : on veut le balancement complet en marchant.
 	referenceSpeed = 12,
 
 	-- Amplitude en course. La cadence monte deja ; ce facteur ajoute
 	-- l'ampleur, sinon courir ressemble a une marche en avance rapide.
-	sprintAmplitude = 1.4,
+	sprintAmplitude = 1.5,
+
+	-- Vitesse de rattrapage du decalage. Assez vif pour suivre le pas, assez
+	-- amorti pour qu'un arret ne coupe pas le mouvement net.
+	follow = 12,
 }
 
 -- ------------------------------------------------ Optique embarquee -----

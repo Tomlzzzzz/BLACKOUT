@@ -18,7 +18,9 @@ local InteractionWidget = {}
 
 export type Widget = {
 	prompt: Frame,
+	stroke: UIStroke,
 	keyBox: Frame,
+	keyShadow: Frame,
 	keyLabel: TextLabel,
 	action: TextLabel,
 	hint: TextLabel,
@@ -37,6 +39,9 @@ export type Widget = {
 	holdElapsed: number,
 	holdDuration: number,
 	flash: number,
+	-- Entree du panneau : il monte et se revele au lieu d'apparaitre.
+	appear: number,
+	press: number,
 
 	visible: boolean,
 	alpha: number,
@@ -59,28 +64,60 @@ function InteractionWidget.create(parent: Instance): Widget
 		ZIndex = 6,
 	}, parent) :: Frame
 	Components.new("UICorner", { CornerRadius = UDim.new(0, Theme.panel.corner) }, prompt)
-	Components.new("UIStroke", {
+	local stroke = Components.new("UIStroke", {
 		Color = Theme.color.border,
 		Thickness = 1,
 		Transparency = 0.3,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-	}, prompt)
+	}, prompt) :: UIStroke
+
+	-- LA TOUCHE EST UN OBJET PHYSIQUE.
+	--
+	-- C'etait un carre plat de 20 pixels avec une lettre dedans : rien n'y
+	-- disait qu'on peut appuyer dessus, et rien n'y changeait quand on
+	-- appuyait. Une touche a une EPAISSEUR — un liseré sombre sous elle — et
+	-- cette epaisseur disparait quand elle s'enfonce. C'est le seul detail qui
+	-- transforme un carre en bouton.
+	--
+	-- L'ombre est un second cadre, decale vers le bas, dessine DERRIERE.
+	local keyShadow = Components.new("Frame", {
+		BackgroundColor3 = Theme.color.void,
+		BackgroundTransparency = 0.15,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(26, 26),
+		Position = UDim2.new(0, 22, 0.5, 3),
+		ZIndex = 6,
+	}, prompt) :: Frame
+	Components.new("UICorner", { CornerRadius = UDim.new(0, 4) }, keyShadow)
 
 	local keyBox = Components.new("Frame", {
 		BackgroundColor3 = Theme.color.raised,
 		BackgroundTransparency = 0.05,
 		BorderSizePixel = 0,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Size = UDim2.fromOffset(20, 20),
-		Position = UDim2.new(0, 12, 0.5, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(26, 26),
+		Position = UDim2.new(0, 22, 0.5, 0),
 		ZIndex = 7,
 	}, prompt) :: Frame
-	Components.new("UICorner", { CornerRadius = UDim.new(0, 2) }, keyBox)
+	Components.new("UICorner", { CornerRadius = UDim.new(0, 4) }, keyBox)
 	Components.new("UIStroke", { Color = Theme.color.borderBright, Thickness = 1, Transparency = 0.2 }, keyBox)
+
+	-- Reflet en haut de la touche : une bande claire en degrade. Sans elle le
+	-- cadre reste plat quelle que soit son epaisseur.
+	local gloss = Components.new("Frame", {
+		BackgroundColor3 = Theme.color.info,
+		BackgroundTransparency = 0.88,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0.45, 0),
+		ZIndex = 8,
+	}, keyBox) :: Frame
+	Components.new("UICorner", { CornerRadius = UDim.new(0, 4) }, gloss)
 
 	local keyLabel = Components.label({
 		text = "E",
-		size = Theme.size.label,
+		size = Theme.size.body,
+		font = Theme.font.hero,
 		color = Theme.color.info,
 		align = Enum.TextXAlignment.Center,
 		zIndex = 8,
@@ -165,7 +202,9 @@ function InteractionWidget.create(parent: Instance): Widget
 
 	return {
 		prompt = prompt,
+		stroke = stroke,
 		keyBox = keyBox,
+		keyShadow = keyShadow,
 		keyLabel = keyLabel,
 		action = action,
 		hint = hint,
@@ -178,6 +217,8 @@ function InteractionWidget.create(parent: Instance): Widget
 		holdElapsed = 0,
 		holdDuration = 0,
 		flash = 0,
+		appear = 0,
+		press = 0,
 		visible = false,
 		alpha = 1,
 		clock = 0,
@@ -233,25 +274,41 @@ end
 
 function InteractionWidget.step(widget: Widget, dt: number)
 	-- --- maintien ---------------------------------------------------------
+	--
+	-- LA TOUCHE S'ENFONCE VRAIMENT. Trois choses bougent ensemble, et c'est
+	-- leur simultaneite qui fait la sensation d'appui :
+	--
+	--   la touche DESCEND de trois pixels
+	--   son ombre portee DISPARAIT sous elle — l'epaisseur s'ecrase
+	--   elle s'eclaircit legerement, comme un contact qui se ferme
+	--
+	-- La version precedente se contentait de retirer deux pixels de hauteur :
+	-- la touche maigrissait au lieu de s'enfoncer.
+	local pressed = 0
 	if widget.holding then
 		widget.holdElapsed = math.min(widget.holdDuration, widget.holdElapsed + dt)
-		local fraction = widget.holdElapsed / widget.holdDuration
-		widget.shown = fraction
-		-- Le cadre de touche s'enfonce : la barre dit le temps, le cadre dit
-		-- que la touche est tenue.
-		widget.keyBox.BackgroundTransparency = 0.05 - 0.05 * fraction
-		widget.keyBox.Size = UDim2.fromOffset(20, 20 - math.floor(fraction * 2))
+		widget.shown = widget.holdElapsed / widget.holdDuration
+		pressed = 1
 	elseif widget.progressTrack.Visible then
 		-- Retrait. Rapide apres un abandon, plus lent apres une reussite pour
-		-- laisser voir le vert.
+		-- laisser voir l'anneau complet passer au vert.
 		local speed = if widget.flash > 0 then 2.5 else 7
 		widget.shown = math.max(0, widget.shown - dt * speed)
-		widget.keyBox.BackgroundTransparency = 0.05
-		widget.keyBox.Size = UDim2.fromOffset(20, 20)
 		if widget.shown <= 0 then
 			widget.progressTrack.Visible = false
 		end
 	end
+
+	-- Le mouvement d'appui suit sa propre interpolation : une touche qui
+	-- tombe instantanement claque, une touche qui met une demi-seconde est
+	-- molle. Un vingtieme de seconde environ.
+	widget.press += (pressed - widget.press) * math.min(1, dt * 22)
+
+	local drop = widget.press * 3
+	widget.keyBox.Position = UDim2.new(0, 22, 0.5, drop)
+	widget.keyShadow.Position = UDim2.new(0, 22, 0.5, 3)
+	widget.keyShadow.BackgroundTransparency = 0.15 + widget.press * 0.85
+	widget.keyBox.BackgroundTransparency = 0.05 - widget.press * 0.05
 
 	if widget.flash > 0 then
 		widget.flash = math.max(0, widget.flash - dt * 2.2)
@@ -285,15 +342,31 @@ function InteractionWidget.step(widget: Widget, dt: number)
 
 	if widget.alpha > 0.98 then
 		widget.prompt.Visible = false
+		widget.appear = 0
 		return
 	end
 
+	-- ENTREE DU PANNEAU. Il MONTE en se revelant, sur huit pixels.
+	--
+	-- Une invite qui apparait d'un coup au centre de l'ecran se lit comme un
+	-- defaut d'affichage. Huit pixels de montee suffisent a la faire lire
+	-- comme quelque chose qui ARRIVE.
+	widget.appear += ((1 - widget.alpha) - widget.appear) * math.min(1, dt * 14)
+
 	widget.prompt.Visible = true
+	widget.prompt.Position = UDim2.new(0.5, 0, 0.62, math.floor((1 - widget.appear) * 8))
 	widget.prompt.BackgroundTransparency = 0.25 + widget.alpha * 0.75
 	widget.action.TextTransparency = widget.alpha
 	widget.hint.TextTransparency = math.min(1, widget.alpha + 0.2)
 	widget.keyLabel.TextTransparency = widget.alpha
-	widget.keyBox.BackgroundTransparency = 0.05 + widget.alpha * 0.95
+	widget.keyShadow.BackgroundTransparency = math.min(1, 0.15 + widget.press * 0.85 + widget.alpha)
+
+	-- Le liseré du panneau prend la couleur de l'action quand elle aboutit :
+	-- le cadre entier confirme, pas seulement l'anneau.
+	widget.stroke.Color = if widget.flash > 0
+		then Theme.color.extraction
+		else Theme.color.border
+	widget.stroke.Transparency = 0.3 + widget.alpha * 0.7 - widget.flash * 0.25
 end
 
 return InteractionWidget

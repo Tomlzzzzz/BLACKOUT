@@ -90,6 +90,8 @@ export type Widget = {
 
 	bpm: number,
 	heat: number,
+	sprinting: boolean,
+	proximity: number,
 	decay: number,
 	shownBpm: number,
 	phase: number,
@@ -151,6 +153,19 @@ local BPM_MAX = 186
 local BPM_FROM_WOUND = 58
 local BPM_FROM_EFFORT = 20
 local BPM_FROM_STARTLE = 34
+
+-- COURSE. L'effort passait uniquement par l'endurance consommee, donc avec
+-- du retard : on sprintait trois secondes avant que le coeur ne bouge. La
+-- course elle-meme compte desormais, immediatement.
+local BPM_FROM_SPRINT = 26
+
+-- PROXIMITE D'UNE CREATURE.
+--
+-- Le meilleur des cinq apports, et le seul qui parle AVANT que le joueur ne
+-- sache. La menace monte quand on se fait reperer ; le coeur, lui, s'affole
+-- des qu'une chose est pres — meme dans le dos, meme sans l'avoir vue.
+-- C'est le HUD qui trahit ce que le corps sait deja.
+local BPM_FROM_PROXIMITY = 40
 
 -- La menace pese meme sans blessure : c'est la peur, pas l'effort.
 local BPM_FROM_THREAT: { [string]: number } = {
@@ -541,6 +556,8 @@ function PlayerStatusWidget.create(parent: Instance): Widget
 		startle = 0,
 		bpm = BPM_REST,
 		heat = 0,
+		sprinting = false,
+		proximity = 0,
 		decay = 0,
 		shownBpm = BPM_REST,
 		phase = 0,
@@ -624,6 +641,17 @@ end
 
 -- Rythme normalise : 0 au repos, 1 a l'affolement. Lu par la panique
 -- generale du HUD pour que tout batte sur le meme pouls.
+-- La course, telle que le SERVEUR l'a accordee. Pas la touche enfoncee : on
+-- ne s'essouffle pas a demander une course qu'on nous refuse.
+function PlayerStatusWidget.setSprinting(widget: Widget, value: boolean)
+	widget.sprinting = value
+end
+
+-- Proximite de la creature la plus proche, 0 (rien alentour) a 1 (sur nous).
+function PlayerStatusWidget.setProximity(widget: Widget, value: number)
+	widget.proximity = math.clamp(value, 0, 1)
+end
+
 function PlayerStatusWidget.getHeat(widget: Widget): number
 	return widget.heat
 end
@@ -645,8 +673,21 @@ function PlayerStatusWidget.step(widget: Widget, dt: number)
 
 	widget.startle = math.max(0, widget.startle - dt * 0.55)
 
+	local sprint = if widget.sprinting then BPM_FROM_SPRINT else 0
+
+	-- La proximite entre au CARRE : une creature a mi-portee ne doit pas
+	-- valoir la moitie de la panique. C'est le dernier tiers de la
+	-- distance qui compte.
+	local near = widget.proximity * widget.proximity * BPM_FROM_PROXIMITY
+
 	widget.bpm = math.clamp(
-		BPM_REST + wound * BPM_FROM_WOUND + effort * BPM_FROM_EFFORT + threat + widget.startle * BPM_FROM_STARTLE,
+		BPM_REST
+			+ wound * BPM_FROM_WOUND
+			+ effort * BPM_FROM_EFFORT
+			+ sprint
+			+ near
+			+ threat
+			+ widget.startle * BPM_FROM_STARTLE,
 		BPM_MIN,
 		BPM_MAX
 	)

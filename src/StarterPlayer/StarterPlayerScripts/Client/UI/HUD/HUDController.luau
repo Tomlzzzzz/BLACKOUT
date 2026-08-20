@@ -332,6 +332,42 @@ local function updateCompass(hud: Hud)
 	CompassWidget.setMarkers(hud.compass, hud.exitMarkers, yaw)
 end
 
+-- Distance a la creature la plus proche, ramenee a 0..1.
+--
+-- Echantillonne avec les autres valeurs derivees, pas par image : c'est une
+-- boucle sur les creatures repliquees, et elle n'a pas besoin d'etre a jour
+-- soixante fois par seconde pour affoler un coeur.
+--
+-- LECTURE SEULE et purement presentation : le client regarde des modeles que
+-- le moteur lui a deja envoyes, il ne decide de rien.
+local function updateProximity(hud: Hud)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local folder = Workspace:FindFirstChild("Enemies")
+
+	if not root or not root:IsA("BasePart") or not folder then
+		PlayerStatusWidget.setProximity(hud.status, 0)
+		return
+	end
+
+	local closest = math.huge
+	for _, model in folder:GetChildren() do
+		local part = model:FindFirstChild("HumanoidRootPart")
+		if part and part:IsA("BasePart") then
+			local distance = (part.Position - root.Position).Magnitude
+			if distance < closest then
+				closest = distance
+			end
+		end
+	end
+
+	local range = Config.Enemies.crawler.DetectionRange
+	PlayerStatusWidget.setProximity(
+		hud.status,
+		if closest >= range then 0 else 1 - closest / range
+	)
+end
+
 local function updateExit(hud: Hud)
 	if hud.extraction.extracting then
 		return
@@ -450,6 +486,8 @@ function HUDController.step(hud: Hud, dt: number)
 	if hud.derivedAccumulator >= Config.Hud.sampleRate.derived then
 		hud.derivedAccumulator = 0
 		updateExit(hud)
+		updateProximity(hud)
+		PlayerStatusWidget.setSprinting(hud.status, player:GetAttribute("Sprinting") == true)
 	end
 end
 
