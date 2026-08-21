@@ -71,16 +71,36 @@ end)
 local STAGE_TIMEOUT = 20
 local TOTAL_TIMEOUT = 45
 
--- DUREE PLANCHER, en secondes.
+-- DUREE PLANCHER D'UNE ETAPE, et respiration avant le cachet, en secondes.
 --
--- Quand la carte est deja en cache, les quatre etapes tombent en moins d'une
--- demi-seconde et l'ecran passe en un clignement : le joueur ne lit pas un
--- ecran de mise en ligne, il voit un defaut d'affichage. Le plancher fait de
--- la transition un GESTE au lieu d'un accident.
+-- Quand la carte est deja en cache, les quatre sondes aboutissent en moins
+-- d'une demi-seconde : les quatre lignes basculent sur OK dans la meme image
+-- et l'ecran passe en un clignement. Le joueur ne lit pas une mise en ligne,
+-- il voit un defaut d'affichage.
 --
--- C'est aussi la valeur a monter pour examiner l'ecran tranquillement dans
--- Studio, ou tout est deja charge.
-local MINIMUM_HOLD = 2
+-- Le plancher est POSE SUR CHAQUE ETAPE, pas en bloc a la fin. Une attente
+-- ajoutee apres coup afficherait « pret » pendant deux secondes sans
+-- deployer, ce qui est le contraire de ce que l'ecran raconte ; etalee, elle
+-- laisse voir les quatre mesures se resoudre l'une apres l'autre — ce pour
+-- quoi cet ecran existe.
+--
+-- Le plancher ne s'applique QU'EN CAS DE SUCCES : une etape qui vient de
+-- consommer ses vingt secondes de delai n'a rien a prolonger.
+local STAGE_FLOOR = 0.45
+local TAIL_HOLD = 0.5
+
+-- RELECTURE EN STUDIO.
+--
+-- Studio charge tout depuis le cache local : meme avec le plancher ci-dessus
+-- l'ecran ne dure pas assez pour etre juge. On l'etire ici, et ici seulement
+-- — `IsStudio` est faux dans une partie publiee, aucun joueur ne subit ces
+-- valeurs.
+--
+-- Repasse-les a 0.45 / 0.5 quand tu testes autre chose que cet ecran.
+if RunService:IsStudio() then
+	STAGE_FLOOR = 3
+	TAIL_HOLD = 2.5
+end
 
 -- Distance de la sonde de sol, en studs. Genereux : le personnage peut
 -- apparaitre en hauteur sur une carte a etages.
@@ -1108,13 +1128,19 @@ end
 local function await(index: number, predicate: () -> boolean): boolean
 	beginStage(index)
 
-	local deadline = os.clock() + STAGE_TIMEOUT
+	local began = os.clock()
+	local deadline = began + STAGE_TIMEOUT
 	while os.clock() < deadline do
 		if os.clock() - startedAt > TOTAL_TIMEOUT then
 			break
 		end
 		local ok, result = pcall(predicate)
 		if ok and result then
+			-- La sonde a repondu ; on laisse la ligne se lire avant de la
+			-- basculer.
+			while os.clock() - began < STAGE_FLOOR do
+				task.wait()
+			end
 			completeStage(index, true)
 			log(TEXT.events[index], COLOR.neutral)
 			return true
@@ -1208,11 +1234,7 @@ end)
 -- tremble encore pendant qu'il autorise le deploiement dirait que la societe
 -- n'est pas sure d'elle ; elle l'est.
 
--- Le plancher se compte depuis le DEMARRAGE, pas depuis la derniere etape :
--- un chargement lent l'a deja depasse et ne paie rien de plus.
-while os.clock() - startedAt < MINIMUM_HOLD do
-	task.wait()
-end
+task.wait(TAIL_HOLD)
 
 quiet = true
 hero.Text = tracked(TEXT.title)
