@@ -148,6 +148,8 @@ type Copy = {
 	failed: string,
 	journalTitle: string,
 	waveTitle: string,
+	registerTitle: string,
+	register: { string },
 	sweepTitle: string,
 	contacts: string,
 	classified: string,
@@ -157,6 +159,7 @@ type Copy = {
 	ambient: { string },
 	events: { string },
 	depth: string,
+	contactFound: string,
 	creed: { string },
 	authorized: string,
 	authorizedSub: string,
@@ -183,6 +186,8 @@ local TEXT: Copy = if FRENCH
 		failed = "DEFAUT",
 		journalTitle = "JOURNAL DE LIAISON",
 		waveTitle = "SIGNAL DE SECTEUR",
+		registerTitle = "REGISTRE",
+		register = { "SITE", "SESSION", "PORTEUR", "HORODATAGE", "CLIENT" },
 		sweepTitle = "BALAYAGE THERMIQUE",
 		contacts = "CONTACTS",
 		classified = "MERIDIAN INTERNE — NE PAS ARCHIVER",
@@ -206,6 +211,7 @@ local TEXT: Copy = if FRENCH
 			"signes vitaux nominaux",
 		},
 		depth = "sol confirme",
+		contactFound = "CONTACT NON IDENTIFIE",
 		creed = {
 			"PERTE D'ACTIF ACCEPTABLE : 6 / 6",
 			"AUCUNE EXTRACTION DE SECOURS N'EST PREVUE.",
@@ -235,6 +241,8 @@ local TEXT: Copy = if FRENCH
 		failed = "FAULT",
 		journalTitle = "UPLINK LOG",
 		waveTitle = "SECTOR SIGNAL",
+		registerTitle = "REGISTRY",
+		register = { "SITE", "SESSION", "CARRIER", "TIMESTAMP", "CLIENT" },
 		sweepTitle = "THERMAL SWEEP",
 		contacts = "CONTACTS",
 		classified = "MERIDIAN INTERNAL — DO NOT ARCHIVE",
@@ -258,6 +266,7 @@ local TEXT: Copy = if FRENCH
 			"vital signs nominal",
 		},
 		depth = "ground confirmed",
+		contactFound = "UNIDENTIFIED CONTACT",
 		creed = {
 			"ACCEPTABLE ASSET LOSS: 6 / 6",
 			"NO RESCUE EXTRACTION IS PLANNED.",
@@ -285,6 +294,17 @@ end
 -- Espacement de lettres. Roblox n'expose pas de `letter-spacing` : on
 -- intercale des espaces. C'est la seule facon d'obtenir la chasse large des
 -- en-tetes militaires.
+-- INTERLETTRAGE — A EMPLOYER AVEC PARCIMONIE.
+--
+-- Il etait pose sur TOUS les libelles en capitales, et c'est ce qui donnait
+-- a l'ecran son air de decor de science-fiction generique : quand tout est
+-- traque, plus rien ne l'est, et il ne reste qu'un maniérisme. Un vrai
+-- terminal n'espace pas ses libelles d'exploitation.
+--
+-- Il ne subsiste que sur les trois enonces INSTITUTIONNELS — la raison
+-- sociale, le titre, le cachet d'autorisation. Ce sont les seuls endroits ou
+-- la societe parle en son nom propre, et le contraste avec le reste, serre
+-- et fonctionnel, fait justement la hierarchie.
 local function spaced(text: string): string
 	return (text:gsub(".", "%0 "):gsub("%s+$", ""))
 end
@@ -367,8 +387,8 @@ end
 
 local MARGIN = px(54)
 local BAND_W = SCREEN_W - MARGIN * 2
-local RIGHT_X = MARGIN + math.floor(BAND_W * 0.63)
-local RIGHT_W = BAND_W - math.floor(BAND_W * 0.63)
+local RIGHT_X = MARGIN + math.floor(BAND_W * 0.56)
+local RIGHT_W = BAND_W - math.floor(BAND_W * 0.56)
 
 -- ----------------------------------------------------------- Fondu -------
 --
@@ -557,6 +577,21 @@ for index = 1, SCANLINES do
 	)
 end
 
+-- UNE LIGNE MORTE.
+--
+-- Une seule ligne de balayage, plus claire que les autres, qui NE DEFILE
+-- PAS. C'est le defaut d'un tube qui a trop servi, et c'est la seule chose
+-- de cet ecran qui ne serve strictement a rien — raison pour laquelle elle y
+-- est. Une interface sans un seul defaut n'a jamais ete fabriquee, seulement
+-- dessinee.
+frame({
+	BackgroundColor3 = COLOR.neutral,
+	BackgroundTransparency = 0.86,
+	Size = UDim2.new(1, 0, 0, 1),
+	Position = UDim2.fromScale(0, 0.372),
+	ZIndex = 3,
+}, root)
+
 -- Barre de roulement : la bande claire qui descend lentement sur un tube mal
 -- synchronise. Un seul objet, et c'est ce qui empeche l'ecran d'avoir l'air
 -- fige pendant les longues attentes.
@@ -611,15 +646,15 @@ vignette(UDim2.fromScale(0.14, 1), UDim2.fromScale(0.86, 0), 180)
 local BRACKET = px(46)
 local function bracket(x: number, y: number, dx: number, dy: number)
 	frame({
-		BackgroundColor3 = COLOR.accent,
-		BackgroundTransparency = 0.35,
+		BackgroundColor3 = COLOR.dim,
+		BackgroundTransparency = 0.25,
 		Size = UDim2.fromOffset(BRACKET, 1),
 		Position = UDim2.fromOffset(if dx > 0 then x else x - BRACKET, y),
 		ZIndex = 7,
 	})
 	frame({
-		BackgroundColor3 = COLOR.accent,
-		BackgroundTransparency = 0.35,
+		BackgroundColor3 = COLOR.dim,
+		BackgroundTransparency = 0.25,
 		Size = UDim2.fromOffset(1, BRACKET),
 		Position = UDim2.fromOffset(x, if dy > 0 then y else y - BRACKET),
 		ZIndex = 7,
@@ -660,11 +695,30 @@ local telemetry = label({
 })
 
 frame({
-	BackgroundColor3 = COLOR.accent,
-	BackgroundTransparency = 0.55,
+	BackgroundColor3 = COLOR.neutral,
+	BackgroundTransparency = 0.4,
 	Size = UDim2.fromOffset(BAND_W, 1),
 	Position = UDim2.fromOffset(MARGIN, MARGIN + px(26)),
 	ZIndex = 6,
+})
+
+-- --- epine dorsale -------------------------------------------------------
+--
+-- Un trait vertical du filet d'en-tete jusqu'au pied, qui separe la colonne
+-- d'exploitation de la colonne d'instruments.
+--
+-- L'ecran etait compose de blocs poses a intervalles reguliers sur une page
+-- vide — la signature meme d'une maquette qui n'a pas ete pensee. Ce seul
+-- trait lui donne une ARCHITECTURE : a gauche on agit, a droite on mesure,
+-- et les deux moities n'ont plus besoin d'avoir la meme densite pour se
+-- tenir. C'est ce desequilibre assume qui fait la difference entre une
+-- composition et une grille.
+frame({
+	BackgroundColor3 = COLOR.neutral,
+	BackgroundTransparency = 0.86,
+	Size = UDim2.fromOffset(1, SCREEN_H - px(196) - px(39) - MARGIN - px(26)),
+	Position = UDim2.fromOffset(RIGHT_X - px(30), MARGIN + px(26)),
+	ZIndex = 5,
 })
 
 -- --- bande de danger -----------------------------------------------------
@@ -700,7 +754,7 @@ end
 local heroTop = math.floor(SCREEN_H * 0.115)
 
 label({
-	Text = spaced(TEXT.eyebrow),
+	Text = TEXT.eyebrow,
 	TextSize = px(13),
 	TextColor3 = COLOR.dim,
 	Size = UDim2.fromOffset(BAND_W, px(18)),
@@ -753,7 +807,7 @@ local identityValues = {
 for index, name in TEXT.identity do
 	local top = heroTop + px(222) + (index - 1) * px(24)
 	label({
-		Text = spaced(name),
+		Text = name,
 		TextSize = px(11),
 		TextColor3 = COLOR.faint,
 		Size = UDim2.fromOffset(px(140), px(18)),
@@ -780,7 +834,7 @@ end
 -- Le journal ecrit deja « 0 signature amie ». Trois contacts s'allument au
 -- passage du balayage. Aucun n'est ami.
 
-local DIAL = px(250)
+local DIAL = px(310)
 local dialX = RIGHT_X + RIGHT_W // 2
 local dialY = math.floor(SCREEN_H * 0.255)
 
@@ -804,24 +858,24 @@ for _, ratio in { 1, 0.66, 0.32 } do
 	}, dial)
 	new("UICorner", { CornerRadius = UDim.new(1, 0) }, ring)
 	new("UIStroke", {
-		Color = COLOR.accent,
+		Color = COLOR.neutral,
 		Thickness = 1,
-		Transparency = if ratio == 1 then 0.62 else 0.82,
+		Transparency = if ratio == 1 then 0.38 else 0.68,
 	}, ring)
 end
 
 -- Croix de visee.
 frame({
-	BackgroundColor3 = COLOR.accent,
-	BackgroundTransparency = 0.86,
+	BackgroundColor3 = COLOR.neutral,
+	BackgroundTransparency = 0.84,
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Size = UDim2.fromOffset(DIAL, 1),
 	Position = UDim2.fromScale(0.5, 0.5),
 	ZIndex = 5,
 }, dial)
 frame({
-	BackgroundColor3 = COLOR.accent,
-	BackgroundTransparency = 0.86,
+	BackgroundColor3 = COLOR.neutral,
+	BackgroundTransparency = 0.84,
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Size = UDim2.fromOffset(1, DIAL),
 	Position = UDim2.fromScale(0.5, 0.5),
@@ -843,8 +897,8 @@ for index = 1, 24 do
 	local radius = DIAL / 2 - px(7)
 	local major = (index - 1) % 6 == 0
 	frame({
-		BackgroundColor3 = COLOR.accent,
-		BackgroundTransparency = if major then 0.5 else 0.78,
+		BackgroundColor3 = COLOR.neutral,
+		BackgroundTransparency = if major then 0.3 else 0.66,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Rotation = math.deg(angle),
 		Size = UDim2.fromOffset(1, if major then px(11) else px(5)),
@@ -853,27 +907,42 @@ for index = 1, 24 do
 	}, bezel)
 end
 
--- LE BALAYAGE. Point d'ancrage a gauche et au centre en hauteur : la
--- rotation se fait autour de ce point, donc autour du centre du cadran.
+-- LE BALAYAGE.
+--
+-- Il tournait A COTE du cadran. La barre etait ancree a gauche et posee au
+-- centre — ce qui suppose que Roblox pivote autour du point d'ancrage. La
+-- documentation et l'usage se contredisent la-dessus, et je n'ai pas pu
+-- trancher par la mesure : `AbsolutePosition` IGNORE la rotation, donc
+-- aucune sonde ne renvoie la position reellement affichee.
+--
+-- Alors on ne tranche pas. La barre fait maintenant TOUT le diametre et son
+-- centre coincide avec celui du cadran, point d'ancrage compris : les deux
+-- pivots possibles sont au meme endroit, et la forme est juste quelle que
+-- soit la convention.
+--
+-- C'est le degrade qui fait le rayon — il efface la moitie gauche. Un trait
+-- qui traverse serait une aiguille de compas, pas un balayage.
 local sweep = frame({
 	BackgroundColor3 = COLOR.accent,
-	BackgroundTransparency = 0.4,
-	AnchorPoint = Vector2.new(0, 0.5),
-	Size = UDim2.fromOffset(DIAL // 2, 1),
+	BackgroundTransparency = 0.22,
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Size = UDim2.fromOffset(DIAL, 1),
 	Position = UDim2.fromScale(0.5, 0.5),
 	ZIndex = 6,
 }, dial)
 new("UIGradient", {
 	Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.25),
-		NumberSequenceKeypoint.new(1, 1),
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0.5, 1),
+		NumberSequenceKeypoint.new(0.53, 0.05),
+		NumberSequenceKeypoint.new(1, 0.62),
 	}),
 }, sweep)
 
 -- CONTACTS. Angles et distances tires une fois, puis figes : un contact qui
 -- se deplacerait entre deux passages serait un bug d'affichage, pas une
 -- presence.
-type Contact = { dot: Frame, angle: number, charge: number }
+type Contact = { dot: Frame, angle: number, charge: number, found: boolean }
 
 local contacts: { Contact } = {}
 for _ = 1, 3 do
@@ -882,6 +951,7 @@ for _ = 1, 3 do
 	table.insert(contacts, {
 		angle = angle,
 		charge = 0,
+		found = false,
 		dot = frame({
 			BackgroundColor3 = COLOR.danger,
 			BackgroundTransparency = 1,
@@ -899,7 +969,7 @@ for _ = 1, 3 do
 end
 
 label({
-	Text = spaced(TEXT.sweepTitle),
+	Text = TEXT.sweepTitle,
 	TextSize = px(11),
 	TextColor3 = COLOR.faint,
 	TextXAlignment = Enum.TextXAlignment.Center,
@@ -907,8 +977,10 @@ label({
 	Position = UDim2.fromOffset(dialX - RIGHT_W // 2, dialY + DIAL // 2 + px(10)),
 })
 
+local contactsFound = 0
+
 local contactLabel = label({
-	Text = string.format("%s %02d", TEXT.contacts, #contacts),
+	Text = string.format("%s %02d", TEXT.contacts, contactsFound),
 	TextSize = px(13),
 	Font = Enum.Font.RobotoMono,
 	TextColor3 = COLOR.danger,
@@ -921,18 +993,25 @@ local contactLabel = label({
 --
 -- Le long du bord droit, a la verticale, comme le tampon d'un dossier qu'on
 -- n'aurait pas du sortir.
+local classification = frame({
+	BackgroundColor3 = COLOR.danger,
+	BackgroundTransparency = 0.94,
+	AnchorPoint = Vector2.new(1, 0),
+	Size = UDim2.fromOffset(px(330), px(24)),
+	Position = UDim2.fromOffset(SCREEN_W - MARGIN, MARGIN + px(52)),
+	ZIndex = 6,
+})
+new("UIStroke", { Color = COLOR.danger, Thickness = 1, Transparency = 0.55 }, classification)
+
 label({
-	Text = spaced(TEXT.classified),
+	Text = TEXT.classified,
 	TextSize = px(11),
 	TextColor3 = COLOR.danger,
-	TextTransparency = 0.45,
+	TextTransparency = 0.25,
 	TextXAlignment = Enum.TextXAlignment.Center,
-	Rotation = 90,
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Size = UDim2.fromOffset(math.floor(SCREEN_H * 0.5), px(16)),
-	Position = UDim2.fromOffset(SCREEN_W - px(38), SCREEN_H // 2),
+	Size = UDim2.fromScale(1, 1),
 	ZIndex = 7,
-})
+}, classification)
 
 -- --- etapes --------------------------------------------------------------
 
@@ -943,6 +1022,9 @@ type Row = {
 	detail: TextLabel,
 	state: TextLabel,
 	rule: Frame,
+	-- Le filet qui court du nom d'etape jusqu'a son etat. Sans lui les deux
+	-- flottent aux extremites de la ligne sans se rapporter l'un a l'autre.
+	leader: Frame,
 	-- Segment clair qui court le long du filet pendant que la sonde tourne.
 	-- Il ne dit pas « x pour cent » — il n'y a rien a pourcenter, une sonde
 	-- repond ou ne repond pas. Il dit « ca travaille ».
@@ -952,7 +1034,7 @@ type Row = {
 
 local ROW_TOP = math.floor(SCREEN_H * 0.44)
 local ROW_STEP = px(52)
-local ROW_W = math.floor(BAND_W * 0.55)
+local ROW_W = math.floor(BAND_W * 0.46)
 
 local rows: { Row } = {}
 for index, name in TEXT.stages do
@@ -975,8 +1057,8 @@ for index, name in TEXT.stages do
 			Position = UDim2.fromOffset(MARGIN + px(18), top),
 		}),
 		name = label({
-			Text = spaced(name),
-			TextSize = px(19),
+			Text = name,
+			TextSize = px(21),
 			TextColor3 = COLOR.dim,
 			Size = UDim2.fromOffset(px(340), px(20)),
 			Position = UDim2.fromOffset(MARGIN + px(56), top),
@@ -1004,6 +1086,13 @@ for index, name in TEXT.stages do
 			Position = UDim2.fromOffset(MARGIN, top + px(42)),
 			ZIndex = 6,
 		}),
+		leader = frame({
+			BackgroundColor3 = COLOR.neutral,
+			BackgroundTransparency = 0.9,
+			Size = UDim2.fromOffset(ROW_W - px(250) - px(175), 1),
+			Position = UDim2.fromOffset(MARGIN + px(250), top + px(11)),
+			ZIndex = 5,
+		}),
 		scan = frame({
 			BackgroundColor3 = COLOR.accent,
 			BackgroundTransparency = 1,
@@ -1014,10 +1103,93 @@ for index, name in TEXT.stages do
 	})
 end
 
+-- --- registre -----------------------------------------------------------
+--
+-- Un bloc serre de chiffres, sous les etapes, dans la colonne de gauche.
+--
+-- C'est le contraire de tout le reste de l'ecran, et c'est voulu. Une
+-- interface technique credible n'est pas aeree partout : elle est vide la ou
+-- il n'y a rien a dire, et DENSE la ou la machine deballe ce qu'elle sait.
+-- Une page ou tout respire au meme rythme se lit comme une decoration.
+--
+-- Aucune de ces valeurs n'est inventee. Identifiant du lieu, identifiant de
+-- session, matricule du porteur, horodatage UTC, version du client : ce sont
+-- les cinq choses qu'un vrai journal d'incident demanderait, et elles sont
+-- toutes lisibles ici.
+local REGISTER_TOP = ROW_TOP + #TEXT.stages * ROW_STEP + px(30)
+
+label({
+	Text = TEXT.registerTitle,
+	TextSize = px(11),
+	TextColor3 = COLOR.dim,
+	Size = UDim2.fromOffset(px(300), px(16)),
+	Position = UDim2.fromOffset(MARGIN, REGISTER_TOP),
+})
+
+frame({
+	BackgroundColor3 = COLOR.neutral,
+	BackgroundTransparency = 0.82,
+	Size = UDim2.fromOffset(px(440), 1),
+	Position = UDim2.fromOffset(MARGIN, REGISTER_TOP + px(18)),
+	ZIndex = 6,
+})
+
+local function safely(fallback: string, read: () -> string): string
+	local ok, value = pcall(read)
+	return if ok and typeof(value) == "string" and #value > 0 then value else fallback
+end
+
+local registerRows = {
+	{
+		TEXT.register[1],
+		safely("—", function()
+			return tostring(game.PlaceId)
+		end),
+	},
+	{
+		TEXT.register[2],
+		safely("LOCAL", function()
+			return string.upper(string.sub(game.JobId, 1, 8))
+		end),
+	},
+	{ TEXT.register[3], tostring(player.UserId) },
+	{
+		TEXT.register[4],
+		safely("—", function()
+			return os.date("!%Y-%m-%d %H:%M:%SZ") :: string
+		end),
+	},
+	{
+		TEXT.register[5],
+		safely("—", function()
+			return version()
+		end),
+	},
+}
+
+for index, row in registerRows do
+	local top = REGISTER_TOP + px(26) + (index - 1) * px(19)
+	label({
+		Text = row[1],
+		TextSize = px(11),
+		TextColor3 = COLOR.faint,
+		Size = UDim2.fromOffset(px(110), px(15)),
+		Position = UDim2.fromOffset(MARGIN, top),
+	})
+	label({
+		Text = row[2],
+		TextSize = px(12),
+		Font = Enum.Font.RobotoMono,
+		TextColor3 = COLOR.dim,
+		Size = UDim2.fromOffset(px(330), px(15)),
+		Position = UDim2.fromOffset(MARGIN + px(112), top),
+	})
+end
+
 -- --- journal de liaison --------------------------------------------------
 
 label({
-	Text = spaced(TEXT.journalTitle),
+	Text = TEXT.journalTitle,
 	TextSize = px(11),
 	TextColor3 = COLOR.dim,
 	Size = UDim2.fromOffset(RIGHT_W, px(16)),
@@ -1026,7 +1198,7 @@ label({
 
 frame({
 	BackgroundColor3 = COLOR.faint,
-	Size = UDim2.fromOffset(RIGHT_W, 1),
+	Size = UDim2.fromOffset(px(330), 1),
 	Position = UDim2.fromOffset(RIGHT_X, ROW_TOP + px(18)),
 	ZIndex = 6,
 })
@@ -1054,17 +1226,26 @@ local startedAt = os.clock()
 -- Le journal defile vers le HAUT : la ligne la plus recente est en bas, comme
 -- sur un terminal. Les lignes anciennes s'eteignent progressivement — on lit
 -- ce qui vient d'arriver, le reste est du contexte.
+local journalCount = 0
+
 local function log(text: string, color: Color3?)
-	for index = 1, JOURNAL_LINES - 1 do
-		journal[index].Text = journal[index + 1].Text
-		journal[index].TextColor3 = journal[index + 1].TextColor3
+	if journalCount < JOURNAL_LINES then
+		journalCount += 1
+	else
+		for index = 1, JOURNAL_LINES - 1 do
+			journal[index].Text = journal[index + 1].Text
+			journal[index].TextColor3 = journal[index + 1].TextColor3
+		end
 	end
-	local last = journal[JOURNAL_LINES]
+
+	local last = journal[journalCount]
 	last.Text = string.format("%6.2f  %s", os.clock() - startedAt, text)
 	last.TextColor3 = color or COLOR.dim
 
-	for index = 1, JOURNAL_LINES do
-		local depth = (JOURNAL_LINES - index) / JOURNAL_LINES
+	-- Les lignes anciennes s'eteignent : on lit ce qui vient d'arriver, le
+	-- reste est du contexte.
+	for index = 1, journalCount do
+		local depth = (journalCount - index) / math.max(1, journalCount)
 		journal[index].TextTransparency = math.min(0.72, depth * 1.1)
 	end
 end
@@ -1075,11 +1256,11 @@ end
 -- franchie, decrochage de liaison, delai depasse. C'est le seul endroit de
 -- l'ecran ou l'on VOIT la liaison souffrir.
 
-local WAVE_H = px(76)
+local WAVE_H = px(58)
 local WAVE_Y = SCREEN_H - px(196)
 
 label({
-	Text = spaced(TEXT.waveTitle),
+	Text = TEXT.waveTitle,
 	TextSize = px(11),
 	TextColor3 = COLOR.faint,
 	Size = UDim2.fromOffset(px(300), px(16)),
@@ -1094,9 +1275,9 @@ for index = 1, WAVE_BARS do
 		bars,
 		frame({
 			BackgroundColor3 = COLOR.accent,
-			BackgroundTransparency = 0.35,
+			BackgroundTransparency = 0.62,
 			AnchorPoint = Vector2.new(0, 0.5),
-			Size = UDim2.fromOffset(math.max(1, math.floor(WAVE_PITCH) - px(3)), px(3)),
+			Size = UDim2.fromOffset(math.max(1, math.floor(WAVE_PITCH) - px(11)), px(3)),
 			Position = UDim2.fromOffset(MARGIN + math.floor((index - 1) * WAVE_PITCH), WAVE_Y + WAVE_H // 2),
 			ZIndex = 6,
 		})
@@ -1289,6 +1470,12 @@ local heartbeat = RunService.Heartbeat:Connect(function(dt)
 		local delta = (sweepAngle - contact.angle) % 360
 		if delta < 7 then
 			contact.charge = 1
+			if not contact.found then
+				contact.found = true
+				contactsFound += 1
+				contactLabel.Text = string.format("%s %02d", TEXT.contacts, contactsFound)
+				log(TEXT.contactFound, COLOR.danger)
+			end
 		end
 		contact.charge = math.max(0, contact.charge - dt * 0.55)
 		contact.dot.BackgroundTransparency = 1 - contact.charge * 0.92
