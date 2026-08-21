@@ -148,6 +148,9 @@ type Copy = {
 	failed: string,
 	journalTitle: string,
 	waveTitle: string,
+	sweepTitle: string,
+	contacts: string,
+	classified: string,
 	link: string,
 	memory: string,
 	boot: { string },
@@ -180,6 +183,9 @@ local TEXT: Copy = if FRENCH
 		failed = "DEFAUT",
 		journalTitle = "JOURNAL DE LIAISON",
 		waveTitle = "SIGNAL DE SECTEUR",
+		sweepTitle = "BALAYAGE THERMIQUE",
+		contacts = "CONTACTS",
+		classified = "MERIDIAN INTERNE — NE PAS ARCHIVER",
 		link = "LIAISON",
 		memory = "MEM",
 		boot = { "liaison montante etablie", "authentification du porteur" },
@@ -229,6 +235,9 @@ local TEXT: Copy = if FRENCH
 		failed = "FAULT",
 		journalTitle = "UPLINK LOG",
 		waveTitle = "SECTOR SIGNAL",
+		sweepTitle = "THERMAL SWEEP",
+		contacts = "CONTACTS",
+		classified = "MERIDIAN INTERNAL — DO NOT ARCHIVE",
 		link = "UPLINK",
 		memory = "MEM",
 		boot = { "uplink established", "carrier authentication" },
@@ -323,22 +332,40 @@ end
 
 -- ------------------------------------------------------------- Echelle ---
 --
--- Tout est pose en pixels a la hauteur de reference (1080p) puis multiplie.
--- On n'utilise pas de `UIScale` : les rails d'en-tete et de pied doivent
--- toucher les bords de l'ecran, et un `UIScale` sur un cadre plein ecran le
--- retrecirait au lieu de le mettre a l'echelle.
+-- ON NE MESURE PLUS LA FENETRE : ON DESSINE DANS UN GABARIT.
+--
+-- Trois tentatives ont echoue, chacune pour une raison differente, et la
+-- liste vaut d'etre gardee :
+--
+--   * repli code en dur — la mise en page partait sur un 1920x1080
+--     imaginaire et le bas passait sous le bord d'une fenetre plus petite ;
+--   * attente de la premiere valeur plausible — Studio passe par une taille
+--     INTERMEDIAIRE (releve : 702 de haut avant de se poser sur 631) ;
+--   * attente d'une valeur STABLE — mesure faite, `ViewportSize` reste 1x1
+--     pendant plus de cinq secondes ici, et l'ecran repartait sur le repli.
+--
+-- On arrete de courir apres la fenetre. Tout le contenu est dessine dans un
+-- GABARIT FIXE de 1920x1080, et un seul `UIScale`, reevalue a chaque image,
+-- le met a la taille de l'ecran. Consequences :
+--
+--   * la mise en page ne peut plus etre fausse : elle ne depend de rien ;
+--   * un joueur qui redimensionne pendant le chargement est suivi tout de
+--     suite, sans rien reconstruire ;
+--   * plus une seule image d'attente au demarrage.
+--
+-- Les couches d'ambiance — grille, balayage, roulement, vignette — restent
+-- HORS du gabarit, en coordonnees relatives : elles couvrent l'ecran entier,
+-- pas le document.
 
-local camera = Workspace.CurrentCamera
-local viewport = if camera and camera.ViewportSize.Y > 100 then camera.ViewportSize else Vector2.new(1920, 1080)
+local SCREEN_W = 1920
+local SCREEN_H = 1080
 
-local S = math.clamp(viewport.Y / 1080, 0.6, 1.4)
+local S = 1
 local function px(value: number): number
-	return math.floor(value * S + 0.5)
+	return math.floor(value + 0.5)
 end
 
 local MARGIN = px(54)
-local SCREEN_W = math.floor(viewport.X)
-local SCREEN_H = math.floor(viewport.Y)
 local BAND_W = SCREEN_W - MARGIN * 2
 local RIGHT_X = MARGIN + math.floor(BAND_W * 0.63)
 local RIGHT_W = BAND_W - math.floor(BAND_W * 0.63)
@@ -420,6 +447,38 @@ local root = new("Frame", {
 
 local rootHome = UDim2.fromOffset(0, 0)
 
+-- LE GABARIT. Taille fixe, centre, mis a l'echelle par `UIScale`.
+--
+-- `min` et non `max` : le contenu doit entrer ENTIEREMENT dans la fenetre.
+-- Sur un format plus large que 16/9 il reste des marges laterales — elles ne
+-- se lisent pas comme des bandes noires puisque les couches d'ambiance, qui
+-- vivent en dehors du gabarit, couvrent l'ecran entier.
+local canvas = new("Frame", {
+	Name = "Canvas",
+	BackgroundTransparency = 1,
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.5),
+	Size = UDim2.fromOffset(SCREEN_W, SCREEN_H),
+	ZIndex = 2,
+}, root)
+
+local canvasScale = new("UIScale", { Scale = 0.5 }, canvas)
+
+local function fitCanvas()
+	local cam = Workspace.CurrentCamera
+	if not cam then
+		return
+	end
+	local size = cam.ViewportSize
+	if size.X < 2 or size.Y < 2 then
+		return
+	end
+	canvasScale.Scale = math.min(size.X / SCREEN_W, size.Y / SCREEN_H)
+end
+
+fitCanvas()
+local fitConnection = RunService.RenderStepped:Connect(fitCanvas)
+
 local function frame(props: { [string]: any }, parent: Instance?): Frame
 	local defaults: { [string]: any } = {
 		BorderSizePixel = 0,
@@ -429,7 +488,7 @@ local function frame(props: { [string]: any }, parent: Instance?): Frame
 	for key, value in props do
 		defaults[key] = value
 	end
-	local object = new("Frame", defaults, parent or root)
+	local object = new("Frame", defaults, parent or canvas)
 	fadeable(object)
 	return object
 end
@@ -447,7 +506,7 @@ local function label(props: { [string]: any }, parent: Instance?): TextLabel
 	for key, value in props do
 		defaults[key] = value
 	end
-	local object = new("TextLabel", defaults, parent or root)
+	local object = new("TextLabel", defaults, parent or canvas)
 	fadeable(object)
 	return object
 end
@@ -460,24 +519,27 @@ end
 -- page. Le HUD, le rapport de fin et la vue spectateur portent deja les
 -- deux premieres : le joueur reconnait l'appareil avant d'etre en jeu.
 
-local GRID_PITCH = px(90)
-for x = GRID_PITCH, SCREEN_W, GRID_PITCH do
+-- Elles sont parentees a `root`, PAS au gabarit : un moniteur fatigue l'est
+-- sur toute sa dalle, pas seulement derriere le document.
+local GRID_COLUMNS = 21
+local GRID_ROWS = 12
+for index = 1, GRID_COLUMNS - 1 do
 	frame({
 		BackgroundColor3 = COLOR.neutral,
-		BackgroundTransparency = 0.965,
-		Size = UDim2.fromOffset(1, SCREEN_H),
-		Position = UDim2.fromOffset(x, 0),
+		BackgroundTransparency = 0.94,
+		Size = UDim2.new(0, 1, 1, 0),
+		Position = UDim2.fromScale(index / GRID_COLUMNS, 0),
 		ZIndex = 2,
-	})
+	}, root)
 end
-for y = GRID_PITCH, SCREEN_H, GRID_PITCH do
+for index = 1, GRID_ROWS - 1 do
 	frame({
 		BackgroundColor3 = COLOR.neutral,
-		BackgroundTransparency = 0.965,
-		Size = UDim2.fromOffset(SCREEN_W, 1),
-		Position = UDim2.fromOffset(0, y),
+		BackgroundTransparency = 0.94,
+		Size = UDim2.new(1, 0, 0, 1),
+		Position = UDim2.fromScale(0, index / GRID_ROWS),
 		ZIndex = 2,
-	})
+	}, root)
 end
 
 local SCANLINES = 30
@@ -487,11 +549,11 @@ for index = 1, SCANLINES do
 		scanlines,
 		frame({
 			BackgroundColor3 = COLOR.neutral,
-			BackgroundTransparency = 0.94,
+			BackgroundTransparency = 0.9,
 			Size = UDim2.new(1, 0, 0, 2),
 			Position = UDim2.fromScale(0, (index - 1) / SCANLINES),
 			ZIndex = 3,
-		})
+		}, root)
 	)
 end
 
@@ -501,10 +563,10 @@ end
 local roll = frame({
 	BackgroundColor3 = COLOR.neutral,
 	BackgroundTransparency = 0.9,
-	Size = UDim2.new(1, 0, 0, px(150)),
-	Position = UDim2.fromOffset(0, -px(150)),
+	Size = UDim2.fromScale(1, 0.14),
+	Position = UDim2.fromScale(0, -0.14),
 	ZIndex = 3,
-})
+}, root)
 new("UIGradient", {
 	Rotation = 90,
 	Transparency = NumberSequence.new({
@@ -524,7 +586,7 @@ local function vignette(size: UDim2, position: UDim2, rotation: number)
 		Size = size,
 		Position = position,
 		ZIndex = 4,
-	})
+	}, root)
 	new("UIGradient", {
 		Rotation = rotation,
 		Transparency = NumberSequence.new({
@@ -534,10 +596,10 @@ local function vignette(size: UDim2, position: UDim2, rotation: number)
 	}, band)
 end
 
-vignette(UDim2.new(1, 0, 0, px(190)), UDim2.fromOffset(0, 0), 90)
-vignette(UDim2.new(1, 0, 0, px(190)), UDim2.new(0, 0, 1, -px(190)), 270)
-vignette(UDim2.new(0, px(260), 1, 0), UDim2.fromOffset(0, 0), 0)
-vignette(UDim2.new(0, px(260), 1, 0), UDim2.new(1, -px(260), 0, 0), 180)
+vignette(UDim2.fromScale(1, 0.18), UDim2.fromScale(0, 0), 90)
+vignette(UDim2.fromScale(1, 0.18), UDim2.fromScale(0, 0.82), 270)
+vignette(UDim2.fromScale(0.14, 1), UDim2.fromScale(0, 0), 0)
+vignette(UDim2.fromScale(0.14, 1), UDim2.fromScale(0.86, 0), 180)
 
 -- --- equerres d'ecran ----------------------------------------------------
 --
@@ -605,9 +667,37 @@ frame({
 	ZIndex = 6,
 })
 
+-- --- bande de danger -----------------------------------------------------
+--
+-- Les chevrons jaune et noir d'une zone reglementee. C'est le signe le plus
+-- immediatement militaire qu'on puisse poser, et il ne coute qu'un cadre
+-- ecreteur rempli de barres inclinees — Roblox ne sait pas biaiser un cadre,
+-- mais il sait le faire tourner et rogner ce qui depasse.
+local hazard = frame({
+	BackgroundColor3 = COLOR.void,
+	BackgroundTransparency = 0.3,
+	ClipsDescendants = true,
+	Size = UDim2.fromOffset(BAND_W, px(9)),
+	Position = UDim2.fromOffset(MARGIN, MARGIN + px(32)),
+	ZIndex = 6,
+})
+
+local HAZARD_PITCH = px(24)
+for x = -px(24), BAND_W + px(24), HAZARD_PITCH do
+	frame({
+		BackgroundColor3 = COLOR.accent,
+		BackgroundTransparency = 0.62,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Rotation = 45,
+		Size = UDim2.fromOffset(px(7), px(42)),
+		Position = UDim2.fromOffset(x, px(5)),
+		ZIndex = 7,
+	}, hazard)
+end
+
 -- --- titre ---------------------------------------------------------------
 
-local heroTop = math.floor(SCREEN_H * 0.155)
+local heroTop = math.floor(SCREEN_H * 0.115)
 
 label({
 	Text = spaced(TEXT.eyebrow),
@@ -679,6 +769,171 @@ for index, name in TEXT.identity do
 	})
 end
 
+-- --- reticule de balayage ------------------------------------------------
+--
+-- Le tiers droit de l'ecran etait vide, et un vide au milieu d'un terminal
+-- se lit comme une page inachevee. On y pose l'instrument qui manquait : un
+-- balayage thermique du secteur, avec sa ligne qui tourne et ses CONTACTS.
+--
+-- Il ne mesure rien — c'est le seul element decoratif de l'ecran, et il est
+-- assume : ce qu'il raconte, en revanche, est vrai dans la fiction du jeu.
+-- Le journal ecrit deja « 0 signature amie ». Trois contacts s'allument au
+-- passage du balayage. Aucun n'est ami.
+
+local DIAL = px(250)
+local dialX = RIGHT_X + RIGHT_W // 2
+local dialY = math.floor(SCREEN_H * 0.255)
+
+local dial = frame({
+	BackgroundTransparency = 1,
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Size = UDim2.fromOffset(DIAL, DIAL),
+	Position = UDim2.fromOffset(dialX, dialY),
+	ZIndex = 5,
+})
+
+-- Anneaux concentriques. Un cadre transparent, un rayon d'angle a 50 % et un
+-- contour : Roblox n'a pas de cercle, mais il a ca.
+for _, ratio in { 1, 0.66, 0.32 } do
+	local ring = frame({
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(math.floor(DIAL * ratio), math.floor(DIAL * ratio)),
+		Position = UDim2.fromScale(0.5, 0.5),
+		ZIndex = 5,
+	}, dial)
+	new("UICorner", { CornerRadius = UDim.new(1, 0) }, ring)
+	new("UIStroke", {
+		Color = COLOR.accent,
+		Thickness = 1,
+		Transparency = if ratio == 1 then 0.62 else 0.82,
+	}, ring)
+end
+
+-- Croix de visee.
+frame({
+	BackgroundColor3 = COLOR.accent,
+	BackgroundTransparency = 0.86,
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Size = UDim2.fromOffset(DIAL, 1),
+	Position = UDim2.fromScale(0.5, 0.5),
+	ZIndex = 5,
+}, dial)
+frame({
+	BackgroundColor3 = COLOR.accent,
+	BackgroundTransparency = 0.86,
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Size = UDim2.fromOffset(1, DIAL),
+	Position = UDim2.fromScale(0.5, 0.5),
+	ZIndex = 5,
+}, dial)
+
+-- Couronne graduee. Elle tourne LENTEMENT et a CONTRESENS du balayage : deux
+-- mouvements de sens contraire font un instrument, un seul fait une roue.
+local bezel = frame({
+	BackgroundTransparency = 1,
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Size = UDim2.fromOffset(DIAL, DIAL),
+	Position = UDim2.fromScale(0.5, 0.5),
+	ZIndex = 5,
+}, dial)
+
+for index = 1, 24 do
+	local angle = math.rad((index - 1) * 15)
+	local radius = DIAL / 2 - px(7)
+	local major = (index - 1) % 6 == 0
+	frame({
+		BackgroundColor3 = COLOR.accent,
+		BackgroundTransparency = if major then 0.5 else 0.78,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Rotation = math.deg(angle),
+		Size = UDim2.fromOffset(1, if major then px(11) else px(5)),
+		Position = UDim2.new(0.5, math.floor(math.sin(angle) * radius), 0.5, math.floor(-math.cos(angle) * radius)),
+		ZIndex = 5,
+	}, bezel)
+end
+
+-- LE BALAYAGE. Point d'ancrage a gauche et au centre en hauteur : la
+-- rotation se fait autour de ce point, donc autour du centre du cadran.
+local sweep = frame({
+	BackgroundColor3 = COLOR.accent,
+	BackgroundTransparency = 0.4,
+	AnchorPoint = Vector2.new(0, 0.5),
+	Size = UDim2.fromOffset(DIAL // 2, 1),
+	Position = UDim2.fromScale(0.5, 0.5),
+	ZIndex = 6,
+}, dial)
+new("UIGradient", {
+	Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.25),
+		NumberSequenceKeypoint.new(1, 1),
+	}),
+}, sweep)
+
+-- CONTACTS. Angles et distances tires une fois, puis figes : un contact qui
+-- se deplacerait entre deux passages serait un bug d'affichage, pas une
+-- presence.
+type Contact = { dot: Frame, angle: number, charge: number }
+
+local contacts: { Contact } = {}
+for _ = 1, 3 do
+	local angle = math.random(0, 359)
+	local radius = (0.34 + math.random() * 0.58) * (DIAL / 2)
+	table.insert(contacts, {
+		angle = angle,
+		charge = 0,
+		dot = frame({
+			BackgroundColor3 = COLOR.danger,
+			BackgroundTransparency = 1,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.fromOffset(px(5), px(5)),
+			Position = UDim2.new(
+				0.5,
+				math.floor(math.sin(math.rad(angle)) * radius),
+				0.5,
+				math.floor(-math.cos(math.rad(angle)) * radius)
+			),
+			ZIndex = 7,
+		}, dial),
+	})
+end
+
+label({
+	Text = spaced(TEXT.sweepTitle),
+	TextSize = px(11),
+	TextColor3 = COLOR.faint,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	Size = UDim2.fromOffset(RIGHT_W, px(16)),
+	Position = UDim2.fromOffset(dialX - RIGHT_W // 2, dialY + DIAL // 2 + px(10)),
+})
+
+local contactLabel = label({
+	Text = string.format("%s %02d", TEXT.contacts, #contacts),
+	TextSize = px(13),
+	Font = Enum.Font.RobotoMono,
+	TextColor3 = COLOR.danger,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	Size = UDim2.fromOffset(RIGHT_W, px(18)),
+	Position = UDim2.fromOffset(dialX - RIGHT_W // 2, dialY + DIAL // 2 + px(24)),
+})
+
+-- --- mention de classement -----------------------------------------------
+--
+-- Le long du bord droit, a la verticale, comme le tampon d'un dossier qu'on
+-- n'aurait pas du sortir.
+label({
+	Text = spaced(TEXT.classified),
+	TextSize = px(11),
+	TextColor3 = COLOR.danger,
+	TextTransparency = 0.45,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	Rotation = 90,
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Size = UDim2.fromOffset(math.floor(SCREEN_H * 0.5), px(16)),
+	Position = UDim2.fromOffset(SCREEN_W - px(38), SCREEN_H // 2),
+	ZIndex = 7,
+})
+
 -- --- etapes --------------------------------------------------------------
 
 type Row = {
@@ -688,10 +943,14 @@ type Row = {
 	detail: TextLabel,
 	state: TextLabel,
 	rule: Frame,
+	-- Segment clair qui court le long du filet pendant que la sonde tourne.
+	-- Il ne dit pas « x pour cent » — il n'y a rien a pourcenter, une sonde
+	-- repond ou ne repond pas. Il dit « ca travaille ».
+	scan: Frame,
 	active: boolean,
 }
 
-local ROW_TOP = math.floor(SCREEN_H * 0.47)
+local ROW_TOP = math.floor(SCREEN_H * 0.44)
 local ROW_STEP = px(52)
 local ROW_W = math.floor(BAND_W * 0.55)
 
@@ -744,6 +1003,13 @@ for index, name in TEXT.stages do
 			Size = UDim2.fromOffset(ROW_W, 1),
 			Position = UDim2.fromOffset(MARGIN, top + px(42)),
 			ZIndex = 6,
+		}),
+		scan = frame({
+			BackgroundColor3 = COLOR.accent,
+			BackgroundTransparency = 1,
+			Size = UDim2.fromOffset(px(90), 1),
+			Position = UDim2.fromOffset(MARGIN, top + px(42)),
+			ZIndex = 7,
 		}),
 	})
 end
@@ -885,15 +1151,15 @@ local dip = frame({
 	BackgroundTransparency = 1,
 	Size = UDim2.fromScale(1, 1),
 	ZIndex = 20,
-})
+}, root)
 
 local tear = frame({
 	BackgroundColor3 = COLOR.info,
 	BackgroundTransparency = 1,
-	Size = UDim2.new(1, 0, 0, px(3)),
-	Position = UDim2.fromOffset(0, 0),
+	Size = UDim2.new(1, 0, 0, 3),
+	Position = UDim2.fromScale(0, 0),
 	ZIndex = 21,
-})
+}, root)
 
 -- ------------------------------------------------------------ Allumage ---
 --
@@ -908,7 +1174,7 @@ local beam = new("Frame", {
 	BorderSizePixel = 0,
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(0, px(2)),
+	Size = UDim2.new(0, 0, 0, 2),
 	ZIndex = 30,
 }, gui)
 
@@ -925,18 +1191,25 @@ local function tween(duration: number, step: (t: number) -> ())
 end
 
 tween(0.16, function(t)
-	beam.Size = UDim2.fromOffset(math.floor(SCREEN_W * t), px(2))
+	beam.Size = UDim2.new(t, 0, 0, 2)
 end)
 
 tween(0.26, function(t)
 	local eased = t * t
-	beam.Size = UDim2.fromOffset(SCREEN_W, px(2) + math.floor(SCREEN_H * eased))
+	beam.Size = UDim2.new(1, 0, eased, 2)
 	beam.BackgroundTransparency = 0.15 + t * 0.85
 	applyAlpha(1 - t)
 end)
 
 beam:Destroy()
 applyAlpha(0)
+
+print(
+	`[Chargement] terminal monte — gabarit {SCREEN_W}x{SCREEN_H}`
+		.. `, {#canvas:GetDescendants()} elements`
+		.. `, {#hazard:GetChildren()} chevrons`
+		.. `, {#contacts} contacts`
+)
 
 log(TEXT.boot[1])
 log(TEXT.boot[2])
@@ -960,11 +1233,12 @@ local heartbeat = RunService.Heartbeat:Connect(function(dt)
 	clock += dt
 	local waited = os.clock() - startedAt
 
+
 	-- Balayage et roulement.
 	for index, line in scanlines do
 		line.Position = UDim2.fromScale(0, ((index - 1) / SCANLINES + clock * 0.045) % 1)
 	end
-	roll.Position = UDim2.fromOffset(0, math.floor(((clock * 0.14) % 1.25 - 0.12) * SCREEN_H))
+	roll.Position = UDim2.fromScale(0, (clock * 0.14) % 1.25 - 0.12)
 
 	-- Telemetrie. Trois lectures reelles ; aucune n'est inventee.
 	elapsed.Text = clockText(waited)
@@ -984,12 +1258,45 @@ local heartbeat = RunService.Heartbeat:Connect(function(dt)
 	-- ligne tient encore ».
 	linkDot.BackgroundTransparency = 0.1 + (0.5 + math.sin(clock * 3.4) * 0.5) * 0.7
 
-	-- Le point de l'etape en cours respire, les autres restent eteints.
+	-- Le point de l'etape en cours respire, les autres restent eteints, et un
+	-- segment court le long de son filet.
 	for _, row in rows do
 		if row.active then
 			row.tick.BackgroundTransparency = (0.5 + math.sin(clock * 5.2) * 0.5) * 0.75
+			local travel = (clock * 0.55) % 1
+			row.scan.Position = UDim2.fromOffset(
+				MARGIN + math.floor((ROW_W - px(90)) * travel),
+				row.rule.Position.Y.Offset
+			)
+			row.scan.BackgroundTransparency = 0.25
+		elseif row.scan.BackgroundTransparency < 1 then
+			row.scan.BackgroundTransparency = 1
 		end
 	end
+
+	-- BALAYAGE THERMIQUE.
+	--
+	-- La ligne tourne, la couronne graduee tourne a contresens plus lentement.
+	-- Un contact ne s'allume QU'AU PASSAGE de la ligne, puis s'eteint tout
+	-- seul : c'est ce delai qui le fait lire comme une detection et non comme
+	-- une decoration qui clignote.
+	local sweepAngle = (clock * 46) % 360
+	sweep.Rotation = sweepAngle
+	bezel.Rotation = -clock * 5
+
+	local litContacts = 0
+	for _, contact in contacts do
+		local delta = (sweepAngle - contact.angle) % 360
+		if delta < 7 then
+			contact.charge = 1
+		end
+		contact.charge = math.max(0, contact.charge - dt * 0.55)
+		contact.dot.BackgroundTransparency = 1 - contact.charge * 0.92
+		if contact.charge > 0.35 then
+			litContacts += 1
+		end
+	end
+	contactLabel.TextTransparency = if litContacts > 0 then 0 else 0.55
 
 	-- Signal de secteur.
 	waveSpike = math.max(0, waveSpike - dt * 1.9)
@@ -1053,7 +1360,7 @@ local heartbeat = RunService.Heartbeat:Connect(function(dt)
 			dip.BackgroundTransparency = 0.42
 			dipUntil = clock + 0.05
 		else
-			tear.Position = UDim2.fromOffset(0, math.random(0, SCREEN_H))
+			tear.Position = UDim2.fromScale(0, math.random())
 			tear.BackgroundTransparency = 0.72
 			tearUntil = clock + 0.06
 		end
@@ -1309,25 +1616,32 @@ local off = new("Frame", {
 	BorderSizePixel = 0,
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(SCREEN_W, SCREEN_H),
+	Size = UDim2.fromScale(1, 1),
 	BackgroundTransparency = 1,
 	ZIndex = 30,
 }, gui)
 
 tween(0.18, function(t)
 	applyAlpha(t)
-	off.Size = UDim2.fromOffset(SCREEN_W, math.max(px(2), math.floor(SCREEN_H * (1 - t))))
+	off.Size = UDim2.new(1, 0, 1 - t, 2)
 	off.BackgroundTransparency = 0.86 - t * 0.61
 end)
 
 root.Visible = false
 
 tween(0.2, function(t)
-	off.Size = UDim2.fromOffset(math.max(2, math.floor(SCREEN_W * (1 - t * t))), px(2))
+	off.Size = UDim2.new(1 - t * t, 0, 0, 2)
 	off.BackgroundTransparency = 0.25 + t * 0.75
 end)
 
+print(
+	`[Chargement] termine en {string.format("%.1f", os.clock() - startedAt)} s`
+		.. ` — echelle finale {string.format("%.3f", canvasScale.Scale)}`
+		.. (if forced then ", deploiement force" else "")
+)
+
 off:Destroy()
+fitConnection:Disconnect()
 task.wait(0.18)
 
 -- Le rideau part en fondu, pas en coupure : le HUD joue sa propre sequence
