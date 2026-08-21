@@ -77,6 +77,15 @@ local crouchIntent: { [Player]: boolean } = {}
 -- touche. C'est aussi la bonne regle de jeu : une fois hors d'haleine, on
 -- reprend son souffle, on ne repart pas par a-coups.
 local sprintLocked: { [Player]: boolean } = {}
+
+-- Date du dernier recalcul FORCE par une intention.
+--
+-- L'arrivee d'une intention declenche un pas d'endurance immediat, pour que
+-- la jauge reponde a la touche sans attendre le tick. Mais l'alternance
+-- true/false change l'etat a CHAQUE envoi : un client modifie qui alterne
+-- mille fois par seconde forcerait mille recalculs. Le garde-fou n'est donc
+-- pas « seulement sur changement » — il faut aussi une cadence minimale.
+local lastForcedStep: { [Player]: number } = {}
 local connections: { RBXScriptConnection } = {}
 
 -- Une connexion Died par joueur, remplacee a chaque reapparition.
@@ -544,6 +553,7 @@ local function onDeath(player: Player)
 	sprintIntent[player] = nil
 	crouchIntent[player] = nil
 	sprintLocked[player] = nil
+	lastForcedStep[player] = nil
 
 	-- Emis EN DERNIER : les abonnes lisent des chiffres definitifs.
 	-- Notamment le rapport de fin, qui a besoin du detail des piles perdues
@@ -610,6 +620,7 @@ local function onPlayerAdded(player: Player)
 	sprintIntent[player] = nil
 	crouchIntent[player] = nil
 	sprintLocked[player] = nil
+	lastForcedStep[player] = nil
 	player:SetAttribute("Sprinting", false)
 	player:SetAttribute("Crouched", false)
 
@@ -728,6 +739,7 @@ local function onPlayerRemoving(player: Player)
 	sprintIntent[player] = nil
 	crouchIntent[player] = nil
 	sprintLocked[player] = nil
+	lastForcedStep[player] = nil
 	vitals[player] = nil
 	damageTaken[player] = nil
 
@@ -953,8 +965,10 @@ function PlayerService.Start()
 				-- On ne passe ici que sur un VRAI changement : un client qui
 				-- reenverrait la meme valeur en boucle ne peut pas forcer le
 				-- serveur a recalculer a volonte.
-				if before ~= (wants == true) then
-					local now = os.clock()
+				local now = os.clock()
+				local since = now - (lastForcedStep[player] or -math.huge)
+				if before ~= (wants == true) and since >= Config.Player.stamina.tickRate then
+					lastForcedStep[player] = now
 					updateStamina(player, Config.Player.stamina.tickRate, now)
 				end
 			end)

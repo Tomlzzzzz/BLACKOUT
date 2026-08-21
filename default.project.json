@@ -24,6 +24,11 @@
       }
     },
 
+    "ReplicatedFirst": {
+      "$className": "ReplicatedFirst",
+      "$path": "src/ReplicatedFirst"
+    },
+
     "StarterPlayer": {
       "$className": "StarterPlayer",
       "$properties": {
