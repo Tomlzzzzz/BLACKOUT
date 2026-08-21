@@ -925,9 +925,9 @@ log(TEXT.boot[2])
 
 local clock = 0
 local waveSpike = 0
-local glitchIn = 2.4
-local ambientIn = 1.6
-local creedIn = 5
+local glitchIn = 1.1
+local ambientIn = 1.2
+local creedIn = 2.4
 local creedIndex = 1
 local headerRestore = 0
 local ghostUntil = 0
@@ -1053,7 +1053,7 @@ local heartbeat = RunService.Heartbeat:Connect(function(dt)
 	-- changement — la machine ne relit pas, elle re-transmet.
 	creedIn -= dt
 	if creedIn <= 0 then
-		creedIn = 5.5
+		creedIn = 4
 		creedIndex = creedIndex % #TEXT.creed + 1
 		creed.Text = scramble(TEXT.creed[creedIndex], 6)
 		creed.TextColor3 = COLOR.faint
